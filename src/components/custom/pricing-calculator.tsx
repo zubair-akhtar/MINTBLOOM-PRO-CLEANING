@@ -50,9 +50,9 @@ const SERVICES: { id: ServiceId; label: string; hint: string; icon: typeof Home 
 ];
 
 const STEPS = [
-  { id: 'service', title: 'Service & size', short: 'Service', icon: Ruler },
-  { id: 'details', title: 'Details & add-ons', short: 'Details', icon: ClipboardList },
-  { id: 'contact', title: 'Your info & address', short: 'Contact', icon: UserRound },
+  { id: 'service', title: 'Property size', short: 'Property size', icon: Ruler },
+  { id: 'details', title: 'Details & add-ons', short: 'Details & add-ons', icon: ClipboardList },
+  { id: 'contact', title: 'Info & address', short: 'Info & address', icon: UserRound },
 ] as const;
 
 type FormState = {
@@ -380,18 +380,20 @@ export function PricingCalculator() {
           </p>
         </header>
 
-        {/* Top wizard */}
-        <nav aria-label="Estimate steps" className="rounded-2xl border border-border bg-card p-3 shadow-sm sm:p-4">
-          <ol className="grid grid-cols-3 gap-2">
+        {/* Chevron wizard — theme colors; reached steps active, upcoming muted */}
+        <nav aria-label="Estimate steps" className="w-full overflow-x-auto pb-1">
+          <ol className="flex min-w-[18rem] w-full">
             {STEPS.map((item, index) => {
               const Icon = item.icon;
-              const done = index < step;
-              const active = index === step;
+              const reached = index <= step; // current + completed = active style
+              const isFirst = index === 0;
+              const isLast = index === STEPS.length - 1;
               return (
-                <li key={item.id}>
+                <li key={item.id} className="relative min-w-0 flex-1">
                   <button
                     type="button"
                     disabled={index > step}
+                    aria-current={index === step ? 'step' : undefined}
                     onClick={() => {
                       if (index < step) {
                         setErrors({});
@@ -399,46 +401,53 @@ export function PricingCalculator() {
                       }
                     }}
                     className={cn(
-                      'flex w-full flex-col items-center gap-1.5 rounded-xl px-1 py-2 text-center transition-colors sm:flex-row sm:gap-2 sm:px-3 sm:text-left',
-                      active && 'bg-primary/10 text-primary',
-                      done && 'text-primary',
-                      !active && !done && 'text-muted-foreground',
-                      index > step && 'cursor-not-allowed opacity-50',
+                      'relative flex h-[4.75rem] w-full flex-col items-center justify-center gap-1 px-2 text-center transition-colors sm:h-[5.25rem] sm:px-4',
+                      reached
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-brand-900/80 text-primary-foreground/55',
+                      index > step && 'cursor-not-allowed',
+                      isFirst && 'rounded-l-md',
+                      isLast && 'rounded-r-md',
                     )}
+                    style={{
+                      clipPath: isLast
+                        ? isFirst
+                          ? undefined
+                          : 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 12px 50%)'
+                        : isFirst
+                          ? 'polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%)'
+                          : 'polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%, 12px 50%)',
+                      marginLeft: isFirst ? 0 : '-12px',
+                      zIndex: STEPS.length - index,
+                    }}
                   >
                     <span
                       className={cn(
-                        'flex size-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold sm:size-9',
-                        active && 'border-primary bg-primary text-primary-foreground',
-                        done && 'border-primary bg-primary/15 text-primary',
-                        !active && !done && 'border-border bg-muted',
+                        'flex size-7 items-center justify-center rounded-full text-xs font-bold sm:size-8 sm:text-sm',
+                        reached
+                          ? 'bg-white text-primary shadow-sm'
+                          : 'bg-white/25 text-primary-foreground/80',
                       )}
                     >
-                      {done ? <Check className="size-4" /> : <Icon className="size-4" />}
+                      {index < step ? <Check className="size-3.5 sm:size-4" strokeWidth={2.5} /> : index + 1}
                     </span>
-                    <span className="min-w-0">
-                      <span className="block text-[10px] font-medium tracking-wide uppercase sm:text-xs">
-                        Step {index + 1}
+                    <span className="flex max-w-full items-center gap-1 px-1">
+                      <Icon className="hidden size-3 shrink-0 opacity-90 sm:block" aria-hidden />
+                      <span className="truncate text-[10px] font-semibold tracking-wide sm:text-xs">
+                        {item.short}
                       </span>
-                      <span className="block truncate text-xs font-semibold sm:text-sm">{item.short}</span>
                     </span>
                   </button>
                 </li>
               );
             })}
           </ol>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-primary transition-all duration-300"
-              style={{ width: `${((step + 1) / STEPS.length) * 100}%` }}
-            />
-          </div>
         </nav>
 
         {step === 0 && (
           <section className="space-y-5 rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-6">
             <div>
-              <h2 className="text-lg font-semibold">Service &amp; property size</h2>
+              <h2 className="text-lg font-semibold">Property size</h2>
               <p className="text-sm text-muted-foreground">Choose a service and enter the home size.</p>
             </div>
 
