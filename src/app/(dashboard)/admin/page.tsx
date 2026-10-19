@@ -18,6 +18,12 @@ export default function AdminPage() {
         >
           Review incoming service requests
         </Link>
+        <Link
+          className="text-sm font-medium text-primary underline underline-offset-4"
+          href="/admin/calculator"
+        >
+          Calculator settings (rates &amp; tax)
+        </Link>
       </section>
     </div>
   );

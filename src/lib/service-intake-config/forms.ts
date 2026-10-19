@@ -4,7 +4,7 @@ import type { FormDefinition } from '@/modules/service-intake/contracts';
 export const intakeForms: FormDefinition[] = [
   {
     id: 'cleaning-quote',
-    version: 1,
+    version: 2,
     title: 'Request a customized quote',
     description:
       'Share the service and property details below. We will review the scope and contact you with next steps. A preferred date is a request only, not a confirmed booking.',
@@ -113,6 +113,14 @@ export const intakeForms: FormDefinition[] = [
             required: true,
             maxLength: 4000,
             help: 'Include size, condition, access, readiness, sanitation needs, or anything else we should review.',
+          },
+          {
+            id: 'estimate_snapshot',
+            type: 'textarea',
+            label: 'Estimate snapshot',
+            required: false,
+            maxLength: 4000,
+            help: 'System-generated estimate JSON for admin review.',
           },
         ],
       },

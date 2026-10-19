@@ -5,12 +5,12 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { signIn } from '@/lib/auth-client';
+import { authClient, signIn } from '@/lib/auth-client';
 
 // Email + password sign-in. Composes the template's base shadcn primitives
 // (Button/Input/Label) styled through the theme tokens. Restyle freely — this
 // file is user-owned. Calls better-auth's authClient.signIn.email; on success
-// the session cookie is set by the catch-all route handler and the page reloads.
+// admins land on /admin, everyone else on /.
 export function SignInForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,12 +22,15 @@ export function SignInForm() {
     setPending(true);
     setError(undefined);
     const { error: signInError } = await signIn.email({ email, password });
-    setPending(false);
     if (signInError) {
+      setPending(false);
       setError(signInError.message ?? 'Could not sign in. Check your details.');
       return;
     }
-    window.location.assign('/');
+    const session = await authClient.getSession();
+    const role = session.data?.user?.role;
+    const isAdmin = role === 'admin' || (typeof role === 'string' && role.split(',').includes('admin'));
+    window.location.assign(isAdmin ? '/admin' : '/');
   }
 
   return (

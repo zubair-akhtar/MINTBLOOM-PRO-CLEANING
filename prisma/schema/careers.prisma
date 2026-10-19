@@ -7,15 +7,19 @@ enum JobOpeningStatus {
 }
 
 model ServiceMarket {
-  id           String           @id @default(cuid())
-  name         String
-  state        String
-  city         String
-  isActive     Boolean          @default(true)
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  openings     JobOpening[]
-  applications JobApplication[]
+  id                  String           @id @default(cuid())
+  name                String
+  state               String
+  city                String
+  isActive            Boolean          @default(true)
+  /// Combined local+state sales tax in basis points (825 = 8.25%). Null = unresolved → review.
+  combinedTaxRateBps  Int?
+  /// When true, residential auto-estimates are allowed for this market.
+  pricingEnabled      Boolean          @default(false)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  openings            JobOpening[]
+  applications        JobApplication[]
 
   @@unique([city, state])
   @@index([state, isActive])

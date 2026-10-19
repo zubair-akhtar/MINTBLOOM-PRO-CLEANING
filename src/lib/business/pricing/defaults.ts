@@ -1,0 +1,145 @@
+// @polsia:user-owned — v3 launch rate-card defaults (editable in Admin).
+
+import type { PricingSettings } from '@/lib/business/pricing/types';
+
+/** Cents for fractional dollar rates (e.g. $0.08 → 8). */
+export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
+  schemaVersion: 1,
+  includedSqFt: 600,
+  maxAutoSqFt: 3500,
+  maxAutoBathEquivalents: 4,
+  maxAutoBedrooms: 4,
+  commercialPerSqFtCents: 28,
+  services: {
+    standard: {
+      baseCents: 14500,
+      minimumCents: 14500,
+      areaRateCentsPerSqFt: 8,
+      bedroomCents: 2000,
+      bathCents: 3500,
+      officeCents: 2000,
+      extraLivingCents: 3500,
+    },
+    deep: {
+      baseCents: 32500,
+      minimumCents: 32500,
+      areaRateCentsPerSqFt: 18,
+      bedroomCents: 4000,
+      bathCents: 6500,
+      officeCents: 3500,
+      extraLivingCents: 5500,
+    },
+    move: {
+      baseCents: 39500,
+      minimumCents: 39500,
+      areaRateCentsPerSqFt: 20,
+      bedroomCents: 5000,
+      bathCents: 7500,
+      officeCents: 4000,
+      extraLivingCents: 6500,
+    },
+    airbnb: {
+      baseCents: 21000,
+      minimumCents: 21000,
+      areaRateCentsPerSqFt: 12,
+      bedroomCents: 3000,
+      bathCents: 4500,
+      officeCents: 2500,
+      extraLivingCents: 4000,
+    },
+  },
+  recurringDiscounts: {
+    weekly: 0.1,
+    biweekly: 0.07,
+    monthly: 0.05,
+  },
+  heavyConditionPercentOfCore: 0.25,
+  petHairCents: 3500,
+  rushFeeCents: 5000,
+  travelBands: [
+    { maxMilesInclusive: 20, feeCents: 0 },
+    { maxMilesInclusive: 35, feeCents: 3000 },
+    { maxMilesInclusive: 50, feeCents: 6000 },
+    { maxMilesInclusive: null, feeCents: 0, quoteRequired: true },
+  ],
+  addOns: [
+    {
+      id: 'oven',
+      label: 'Oven interior',
+      unitCents: 6000,
+      includedInMove: true,
+    },
+    {
+      id: 'fridge',
+      label: 'Refrigerator / freezer interior',
+      unitCents: 4500,
+      includedInMove: true,
+    },
+    {
+      id: 'cabinets',
+      label: 'Empty cabinet interiors',
+      unitCents: 6000,
+      includedInMove: true,
+    },
+    {
+      id: 'interiorWindows',
+      label: 'Interior window glass',
+      unitCents: 800,
+      minimumCents: 4000,
+    },
+    {
+      id: 'windowTracks',
+      label: 'Window tracks',
+      unitCents: 500,
+    },
+    {
+      id: 'blinds',
+      label: 'Blinds hand-wipe',
+      unitCents: 800,
+    },
+    {
+      id: 'baseboards',
+      label: 'Hand-wiped baseboards',
+      unitCents: 4000,
+      services: ['standard', 'airbnb'],
+      includedInServices: ['deep', 'move'],
+    },
+    {
+      id: 'linenChanges',
+      label: 'Linen / bed changes',
+      unitCents: 1200,
+    },
+    {
+      id: 'laundry',
+      label: 'Onsite laundry load',
+      unitCents: 3000,
+    },
+    {
+      id: 'dishes',
+      label: 'Handwashed / excess dishes (15 min)',
+      unitCents: 2500,
+    },
+    {
+      id: 'garage',
+      label: 'Garage sweep (per bay)',
+      unitCents: 4000,
+    },
+  ],
+  baseboardsPerStartedThousandCents: 4000,
+  cabinetInteriorBaseCents: 6000,
+  cabinetInteriorIncludedDoors: 20,
+  cabinetInteriorExtraDoorCents: 300,
+  linenChangeCents: 1200,
+  airbnbIncludedBedChanges: 2,
+  airbnbExtraBedChangeCents: 2000,
+  laundryLoadCents: 3000,
+  maxAutoLaundryLoads: 2,
+  dishesBlockCents: 2500,
+  maxAutoDishBlocks: 2,
+  garageBayCents: 4000,
+  windowPaneCents: 800,
+  windowTracksCents: 500,
+  blindCents: 800,
+};
+
+export const LAUNCH_PRICING_LABEL = 'Mintbloom v3 launch';

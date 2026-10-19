@@ -1,0 +1,15 @@
+// @polsia:user-owned — versioned pricing rate cards for the v3 calculator.
+
+model PricingRateCard {
+  id        String   @id @default(cuid())
+  version   Int
+  label     String
+  isActive  Boolean  @default(false)
+  /// Full editable rate card JSON (services, rooms, add-ons, discounts, gates).
+  settings  Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([version])
+  @@index([isActive])
+}
