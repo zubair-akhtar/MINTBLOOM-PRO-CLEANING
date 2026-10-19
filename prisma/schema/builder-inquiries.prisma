@@ -1,0 +1,44 @@
+// @polsia:user-owned — builder/developer bid inquiries and budgetary estimate snapshots.
+enum BuilderInquiryStatus {
+  new
+  reviewing
+  quoted
+  closed
+}
+
+model BuilderInquiry {
+  id                         String              @id @default(cuid())
+  companyName                String
+  projectContactName         String
+  projectContactEmail        String
+  projectContactPhone        String
+  projectAddressLine1        String
+  projectAddressLine2        String?
+  projectCity                String
+  projectState               String
+  projectZip                 String
+  startingUnitCount          Int
+  totalPlannedUnitCount      Int
+  approximateSquareFootage  Int
+  furnishingStatus           String
+  constructionStage          String
+  siteAccess                 String
+  utilityReadiness           String
+  targetHandoverDate         DateTime            @db.Date
+  preferredFinalCleanDate    DateTime            @db.Date
+  isPhased                   Boolean
+  isRecurring                Boolean
+  notes                      String?
+  unitMixSnapshot            Json
+  cleaningScopesSnapshot     Json
+  residueSnapshot            Json
+  specialScopeSnapshot       Json
+  budgetaryEstimateSnapshot  Json
+  status                     BuilderInquiryStatus @default(new)
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
+
+  @@index([createdAt])
+  @@index([projectZip])
+  @@index([projectContactEmail])
+}

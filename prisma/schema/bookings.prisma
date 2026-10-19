@@ -1,0 +1,169 @@
+// @polsia:user-owned — booking records for the public booking flow.
+enum BookingTier {
+  weekly
+  biweekly
+  monthly
+}
+
+enum BookingServiceType {
+  basicResidential
+  oneTimeResidential
+  recurringResidential
+  deepCleaning
+  moveInMoveOut
+  officeCommercial
+  postConstruction
+  medicalGradeSanitation
+}
+
+enum BookingCadence {
+  weekly
+  biweekly
+  monthly
+}
+
+enum BookingSubscriptionStatus {
+  active
+  paused
+}
+
+model Booking {
+  id            String      @id @default(cuid())
+  fullName      String
+  email         String
+  phone         String
+  addressLine1  String
+  addressLine2  String?
+  city          String
+  state         String
+  zip           String
+  bedrooms      Int
+  bathrooms     Int
+  tier                BookingTier
+  serviceType         BookingServiceType       @default(recurringResidential)
+  cadence             BookingCadence?
+  serviceDate         DateTime                  @db.Date
+  quotedAmountCents   Int
+  paymentAmountCents Int
+  baseAmountCents    Int                       @default(0)
+  travelChargeCents  Int                       @default(0)
+  totalAmountCents   Int                       @default(0)
+  areaClassification String                    @default("core")
+  inclusions         Json                      @default("[]")
+  exclusions         Json                      @default("[]")
+  selectedAddOns     Json                      @default("[]")
+  checkoutSessionId  String
+  paymentIntentId    String?
+  status             BookingSubscriptionStatus @default(active)
+  pausedAt           DateTime?
+  cancelledAt        DateTime?
+  cancellationAction String?
+  refundEligibility  String?
+  refundStatus       String?
+  cancellationOutcome String?
+  createdAt          DateTime                  @default(now())
+
+  @@index([createdAt])
+  @@index([email, serviceType, status, serviceDate])
+  @@index([email, serviceType, cancelledAt])
+}
+
+enum BookingCheckoutStatus {
+  pending
+  fulfilled
+}
+
+model BookingCheckoutDraft {
+  id                String                @id @default(cuid())
+  idempotencyKey    String                @unique
+  fullName          String
+  email             String
+  phone             String
+  addressLine1      String
+  addressLine2      String?
+  city              String
+  state             String
+  zip               String
+  bedrooms          Int
+  bathrooms         Int
+  tier               BookingTier
+  serviceType        BookingServiceType    @default(recurringResidential)
+  cadence            BookingCadence?
+  serviceDate        DateTime              @db.Date
+  amountCents        Int
+  baseAmountCents    Int                   @default(0)
+  travelChargeCents  Int                   @default(0)
+  totalAmountCents   Int                   @default(0)
+  areaClassification String                @default("core")
+  inclusions         Json                  @default("[]")
+  exclusions         Json                  @default("[]")
+  selectedAddOns     Json                  @default("[]")
+  checkoutSessionId  String?               @unique
+  checkoutUrl        String?
+  status             BookingCheckoutStatus @default(pending)
+  createdAt          DateTime              @default(now())
+
+  @@index([createdAt])
+}
+
+model BookingPaymentFulfillment {
+  id                String   @id @default(cuid())
+  checkoutSessionId String   @unique
+  bookingId         String   @unique
+  paymentIntentId   String?
+  amountCents       Int
+  paidAt            DateTime?
+  createdAt         DateTime @default(now())
+}
+
+enum BookingEmailOutboxStatus {
+  queued
+  claimed
+  sent
+}
+
+model BookingEmailOutbox {
+  id         String                   @id @default(cuid())
+  bookingId  String                   @unique
+  recipient  String
+  subject    String
+  textBody   String
+  htmlBody   String
+  status     BookingEmailOutboxStatus @default(queued)
+  attempts   Int                      @default(0)
+  claimedAt  DateTime?
+  sentAt     DateTime?
+  lastError  String?
+  createdAt  DateTime                 @default(now())
+}
+
+enum BookingQuoteRequestStatus {
+  requested
+  contacted
+}
+
+model BookingQuoteRequest {
+  id                  String                    @id @default(cuid())
+  fullName            String
+  email               String
+  phone               String
+  addressLine1        String
+  addressLine2        String?
+  city                String
+  state               String
+  zip                 String
+  bedrooms            Int
+  bathrooms           Int
+  serviceType         BookingServiceType
+  cadence             BookingCadence?
+  serviceDate         DateTime                  @db.Date
+  scope               String?
+  areaClassification  String
+  inclusions          Json                      @default("[]")
+  exclusions          Json                      @default("[]")
+  selectedAddOns      Json                      @default("[]")
+  status              BookingQuoteRequestStatus @default(requested)
+  createdAt           DateTime                  @default(now())
+
+  @@index([createdAt])
+}
