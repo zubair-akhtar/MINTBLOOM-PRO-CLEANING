@@ -12,6 +12,7 @@ import {
   ClipboardList,
   Home,
   LoaderCircle,
+  Pin,
   Ruler,
   Sparkles,
   UserRound,
@@ -879,63 +880,89 @@ export function PricingCalculator() {
         </div>
       </div>
 
-      {/* Estimate panel */}
+      {/* Estimate notice-board panel — light, pinned, no shadow */}
       <aside className="lg:sticky lg:top-24 lg:self-start">
-        <div className="overflow-hidden rounded-3xl border border-primary/25 bg-gradient-to-b from-primary to-brand-800 text-primary-foreground shadow-brand">
-          <div className="border-b border-white/15 px-5 py-4">
-            <p className="text-xs font-semibold tracking-[0.14em] text-primary-foreground/80 uppercase">
-              Your estimate
-            </p>
-            <p className="mt-1 text-sm text-primary-foreground/85">
-              {STEPS[step]?.title ?? 'Estimate'} · updates as you fill details
-            </p>
+        <div className="relative rounded-sm border border-amber-200/80 bg-[#f7f1e3] px-5 pt-8 pb-5">
+          {/* Pin */}
+          <div className="absolute top-2 left-1/2 -translate-x-1/2" aria-hidden>
+            <span className="relative mx-auto flex size-7 items-center justify-center">
+              <span className="absolute size-3 rounded-full bg-red-500 ring-2 ring-red-700/30" />
+              <Pin className="relative size-5 rotate-45 text-red-600" strokeWidth={2.25} />
+            </span>
           </div>
 
-          <div className="px-5 py-5">
+          <div className="space-y-4">
+            <div className="border-b border-amber-900/10 pb-3 text-center">
+              <p className="text-xs font-bold tracking-[0.16em] text-primary uppercase">Your estimate</p>
+              <p className="mt-1 text-sm text-zinc-600">
+                {STEPS[step]?.title ?? 'Estimate'} · updates as you fill details
+              </p>
+            </div>
+
+            {/* Note first */}
+            <div className="rounded-sm border border-dashed border-amber-900/20 bg-[#fffdf8] px-3 py-2.5">
+              <p className="text-[11px] font-bold tracking-wide text-amber-900/70 uppercase">Note</p>
+              <p className="mt-1 text-sm leading-relaxed text-zinc-700">
+                No payment online — submit a request and we confirm the final price with you.
+                Enter square footage to see a live estimate.
+              </p>
+            </div>
+
             {estimating ? (
-              <div className="flex items-center gap-2 text-sm text-primary-foreground/90">
-                <LoaderCircle className="size-4 animate-spin" />
+              <div className="flex items-center gap-2 text-sm text-zinc-600">
+                <LoaderCircle className="size-4 animate-spin text-primary" />
                 Calculating…
               </div>
             ) : null}
 
             {!estimating && !form.squareFeet.trim() ? (
-              <div className="space-y-2">
-                <p className="text-3xl font-semibold tracking-tight">—</p>
-                <p className="text-sm text-primary-foreground/80">
-                  Enter square footage in step 1 to see a live price.
-                </p>
+              <div className="rounded-sm border border-amber-900/10 bg-white/70 px-3 py-4 text-center">
+                <p className="font-serif text-3xl font-semibold tracking-tight text-zinc-400">—</p>
+                <p className="mt-1 text-sm text-zinc-600">Your price will appear here.</p>
               </div>
             ) : null}
 
             {!estimating && estimate?.status === 'priced' ? (
-              <div className="space-y-4">
-                <div>
-                  <p className="text-4xl font-semibold tracking-tight">
+              <div className="space-y-3">
+                <div className="rounded-sm border border-amber-900/10 bg-white/80 px-3 py-4 text-center">
+                  <p className="font-serif text-4xl font-semibold tracking-tight text-primary">
                     {formatUsdFromCents(estimate.totalCents)}
                   </p>
-                  <p className="mt-1 text-sm text-primary-foreground/80">
+                  <p className="mt-1 text-sm text-zinc-600">
                     Incl. est. tax
-                    {estimate.taxRateBps != null ? ` (${(estimate.taxRateBps / 100).toFixed(2)}%)` : ''}
+                    {estimate.taxRateBps != null
+                      ? ` (${(estimate.taxRateBps / 100).toFixed(2)}%)`
+                      : ''}
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="rounded-xl bg-white/10 px-3 py-2">
-                    <p className="text-primary-foreground/70">Pre-tax</p>
-                    <p className="font-semibold">{formatUsdFromCents(estimate.subtotalCents)}</p>
+                  <div className="rounded-sm border border-amber-900/10 bg-white/60 px-3 py-2">
+                    <p className="text-zinc-500">Pre-tax</p>
+                    <p className="font-semibold text-zinc-800">
+                      {formatUsdFromCents(estimate.subtotalCents)}
+                    </p>
                   </div>
-                  <div className="rounded-xl bg-white/10 px-3 py-2">
-                    <p className="text-primary-foreground/70">Tax</p>
-                    <p className="font-semibold">{formatUsdFromCents(estimate.taxCents)}</p>
+                  <div className="rounded-sm border border-amber-900/10 bg-white/60 px-3 py-2">
+                    <p className="text-zinc-500">Tax</p>
+                    <p className="font-semibold text-zinc-800">
+                      {formatUsdFromCents(estimate.taxCents)}
+                    </p>
                   </div>
                 </div>
-                <details className="rounded-xl bg-black/15 px-3 py-2 text-sm open:pb-3">
-                  <summary className="cursor-pointer font-medium">Itemized breakdown</summary>
-                  <ul className="mt-2 max-h-48 space-y-1.5 overflow-auto text-primary-foreground/85">
+                <details className="rounded-sm border border-amber-900/10 bg-white/60 px-3 py-2 text-sm open:pb-3">
+                  <summary className="cursor-pointer font-medium text-zinc-800">
+                    Itemized breakdown
+                  </summary>
+                  <ul className="mt-2 max-h-48 space-y-1.5 overflow-auto text-zinc-600">
                     {estimate.lines.map((line) => (
-                      <li key={line.id} className="flex justify-between gap-3 border-b border-white/10 pb-1.5">
+                      <li
+                        key={line.id}
+                        className="flex justify-between gap-3 border-b border-amber-900/10 pb-1.5"
+                      >
                         <span className="min-w-0">{line.label}</span>
-                        <span className="shrink-0 font-medium">{formatUsdFromCents(line.amountCents)}</span>
+                        <span className="shrink-0 font-medium text-zinc-800">
+                          {formatUsdFromCents(line.amountCents)}
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -944,18 +971,18 @@ export function PricingCalculator() {
             ) : null}
 
             {!estimating && estimate?.status === 'quote_required' ? (
-              <div className="space-y-3">
-                <p className="text-2xl font-semibold tracking-tight">Custom quote</p>
-                <ul className="space-y-1.5 text-sm text-primary-foreground/90">
+              <div className="space-y-3 rounded-sm border border-amber-900/10 bg-white/80 px-3 py-3">
+                <p className="text-xl font-semibold text-zinc-800">Custom quote</p>
+                <ul className="space-y-1.5 text-sm text-zinc-600">
                   {estimate.reasons.map((reason) => (
                     <li key={reason} className="flex gap-2">
-                      <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary-foreground/80" />
+                      <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" />
                       <span>{reason}</span>
                     </li>
                   ))}
                 </ul>
                 {estimate.commercialReferenceCents != null && form.service === 'commercial' ? (
-                  <p className="text-xs text-primary-foreground/75">
+                  <p className="text-xs text-zinc-500">
                     Internal starting reference:{' '}
                     {formatUsdFromCents(estimate.commercialReferenceCents)} before tax (not a quote).
                   </p>
@@ -963,18 +990,14 @@ export function PricingCalculator() {
               </div>
             ) : null}
           </div>
-
-          <div className="border-t border-white/15 bg-black/10 px-5 py-3 text-xs text-primary-foreground/75">
-            No payment online — submit a request and we confirm the final price with you.
-          </div>
         </div>
 
-        {/* Mobile sticky total */}
+        {/* Mobile sticky total — flat, no shadow */}
         {estimate?.status === 'priced' ? (
-          <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 p-3 backdrop-blur lg:hidden">
+          <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-[#f7f1e3] p-3 lg:hidden">
             <div className="mx-auto flex max-w-lg items-center justify-between gap-3">
               <div>
-                <p className="text-xs text-muted-foreground">Estimated total</p>
+                <p className="text-xs text-zinc-500">Estimated total</p>
                 <p className="text-lg font-semibold text-primary">
                   {formatUsdFromCents(estimate.totalCents)}
                 </p>
