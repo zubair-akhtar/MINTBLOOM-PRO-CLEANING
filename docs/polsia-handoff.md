@@ -22,6 +22,7 @@
 | 5 | 2026-10-19 | `/book` live calculator UI | Customer estimate → submit request only | `src/components/custom/pricing-calculator.tsx`, `src/app/(custom)/book/page.tsx`, `src/lib/service-intake-config/forms.ts` (v2 + `estimate_snapshot`) |
 | 6 | 2026-10-19 | Admin Calculator settings page | Edit rates & market tax | `src/app/(dashboard)/admin/calculator/page.tsx`, `src/components/custom/calculator-settings.tsx`, `admin-nav.tsx`, `admin/page.tsx` |
 | 7 | 2026-10-19 | Seed launch markets with tax + rate card | Lubbock-area pricingEnabled + 8.25% | `src/lib/seed.ts` |
+| 8 | 2026-10-19 | /book wizard UX redesign | Step order service→details→address; validation; icons; estimate panel; Places autocomplete | `pricing-calculator.tsx`, `address-autocomplete.tsx`, `api/places/**`, `env.ts` |
 
 ---
 

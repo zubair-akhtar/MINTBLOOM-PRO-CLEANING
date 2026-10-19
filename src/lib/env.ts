@@ -37,6 +37,8 @@ export const env = createEnv({
     BETTER_AUTH_TRUSTED_ORIGINS: z.string().optional(),
     POLSIA_OWNER_EMAIL: z.string().optional(),
     // @polsia:contrib better-auth end
+    /** Optional — Google Places (server). Without it, address fields stay manual. */
+    GOOGLE_MAPS_API_KEY: z.string().min(1).optional(),
     // @polsia:slot env_vars_server end
   },
 
@@ -72,6 +74,7 @@ export const env = createEnv({
     BETTER_AUTH_TRUSTED_ORIGINS: process.env.BETTER_AUTH_TRUSTED_ORIGINS,
     POLSIA_OWNER_EMAIL: process.env.POLSIA_OWNER_EMAIL,
     // @polsia:contrib better-auth end
+    GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
     // @polsia:slot env_runtime end
   },
   emptyStringAsUndefined: true,

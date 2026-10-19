@@ -51,3 +51,6 @@ lerna-debug.log*
 _db_dump_preview/
 *.log
 .cursor/
+
+.vercel
+.env*
