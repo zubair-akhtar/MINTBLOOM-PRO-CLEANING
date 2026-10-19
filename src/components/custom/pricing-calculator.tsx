@@ -1049,7 +1049,7 @@ export function PricingCalculator() {
           <div className="space-y-4">
             <div className="border-b border-amber-900/10 pb-3 text-center">
               <p className="text-xs font-bold tracking-[0.16em] text-primary uppercase">Your estimate</p>
-              <p className="mt-1 text-sm text-zinc-600">Updates on every selection — no address needed yet</p>
+              <p className="mt-1 text-sm text-zinc-600">Updates on every selection</p>
             </div>
 
             {/* 1) Estimate cost total first */}
@@ -1110,7 +1110,6 @@ export function PricingCalculator() {
               <p className="text-[11px] font-bold tracking-wide text-amber-900/70 uppercase">Note</p>
               <p className="mt-1 text-sm leading-relaxed text-zinc-700">
                 No payment online — submit a request and we confirm the final price with you.
-                Contact &amp; address are only needed at the last step.
               </p>
               {estimateBody._provisionalSqft ? (
                 <p className="mt-2 text-xs text-amber-800/90">
