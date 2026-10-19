@@ -156,30 +156,35 @@ export function PricingCalculator() {
 
   const bedroomsValue = form.bedrooms === '5plus' ? '5plus' : n(form.bedrooms);
 
-  const estimateBody = useMemo(
-    () => ({
+  const estimateBody = useMemo(() => {
+    const sqftRaw = form.squareFeet.trim();
+    const sqftParsed = sqftRaw === '' ? null : n(form.squareFeet);
+    // Provisional size so service / rooms / add-ons update live before sqft is entered.
+    const squareFeet = sqftParsed && sqftParsed > 0 ? sqftParsed : 600;
+    return {
       service: form.service,
       city: form.city || 'Lubbock',
       state: form.state || 'TX',
-      zip: form.zip || '00000',
-      squareFeet: form.squareFeet.trim() === '' ? null : n(form.squareFeet),
+      zip: form.zip || '79401',
+      squareFeet,
       bedrooms: bedroomsValue,
-      fullBaths: n(form.fullBaths),
-      halfBaths: n(form.halfBaths),
-      offices: n(form.offices),
-      extraLivingRooms: n(form.extraLivingRooms),
+      fullBaths: Math.max(0, n(form.fullBaths)),
+      halfBaths: Math.max(0, n(form.halfBaths)),
+      offices: Math.max(0, n(form.offices)),
+      extraLivingRooms: Math.max(0, n(form.extraLivingRooms)),
       kitchens: Math.max(1, n(form.kitchens)),
       cadence: form.cadence,
-      isFirstRecurringVisit: true,
+      // Show recurring discount in the live estimate when a cadence is selected.
+      isFirstRecurringVisit: form.cadence === 'one_time',
       addOnQuantities: {
-        oven: n(form.oven),
-        fridge: n(form.fridge),
+        oven: Math.max(0, n(form.oven)),
+        fridge: Math.max(0, n(form.fridge)),
         baseboards: form.baseboards ? 1 : 0,
-        linenChanges: n(form.linenChanges),
-        laundry: n(form.laundry),
-        dishes: n(form.dishes),
-        garage: n(form.garage),
-        interiorWindows: n(form.interiorWindows),
+        linenChanges: Math.max(0, n(form.linenChanges)),
+        laundry: Math.max(0, n(form.laundry)),
+        dishes: Math.max(0, n(form.dishes)),
+        garage: Math.max(0, n(form.garage)),
+        interiorWindows: Math.max(0, n(form.interiorWindows)),
       },
       heavyConditionApproved: false,
       petHairNeeded: form.petHairNeeded,
@@ -187,38 +192,35 @@ export function PricingCalculator() {
       travelMiles: null,
       highWorkRequested: form.highWorkRequested,
       severeOrUnknownCondition: form.severeOrUnknownCondition,
-    }),
-    [form, bedroomsValue],
-  );
+      _provisionalSqft: !sqftParsed || sqftParsed <= 0,
+    };
+  }, [form, bedroomsValue]);
 
   useEffect(() => {
-    if (!form.squareFeet.trim()) {
-      setEstimate(null);
-      return;
-    }
     let active = true;
     const timer = setTimeout(() => {
       setEstimating(true);
+      const { _provisionalSqft: _, ...payload } = estimateBody;
       apiFetch('/api/pricing/estimate', {
         method: 'POST',
-        body: JSON.stringify(estimateBody),
+        body: JSON.stringify(payload),
         schema: EstimateResponse,
       })
         .then((result) => {
           if (active) setEstimate(result);
         })
         .catch(() => {
-          if (active) setEstimate(null);
+          // Keep the last good estimate visible if a request fails mid-edit.
         })
         .finally(() => {
           if (active) setEstimating(false);
         });
-    }, 350);
+    }, 200);
     return () => {
       active = false;
       clearTimeout(timer);
     };
-  }, [estimateBody, form.squareFeet]);
+  }, [estimateBody]);
 
   function validateStep(index: number): boolean {
     const next: FieldErrors = {};
@@ -631,7 +633,7 @@ export function PricingCalculator() {
                 <option value="monthly">Monthly</option>
               </select>
               <p className="text-xs text-muted-foreground">
-                Recurring discounts apply from the second Standard visit (shown after booking history).
+                Selecting a recurring frequency updates the live estimate with the Standard discount.
               </p>
             </div>
 
@@ -904,36 +906,44 @@ export function PricingCalculator() {
               <p className="text-[11px] font-bold tracking-wide text-amber-900/70 uppercase">Note</p>
               <p className="mt-1 text-sm leading-relaxed text-zinc-700">
                 No payment online — submit a request and we confirm the final price with you.
-                Enter square footage to see a live estimate.
+                Total updates live as you change service, size, rooms, and add-ons.
               </p>
             </div>
 
-            {estimating ? (
+            {estimating && !estimate ? (
               <div className="flex items-center gap-2 text-sm text-zinc-600">
                 <LoaderCircle className="size-4 animate-spin text-primary" />
                 Calculating…
               </div>
             ) : null}
 
-            {!estimating && !form.squareFeet.trim() ? (
-              <div className="rounded-sm border border-amber-900/10 bg-white/70 px-3 py-4 text-center">
-                <p className="font-serif text-3xl font-semibold tracking-tight text-zinc-400">—</p>
-                <p className="mt-1 text-sm text-zinc-600">Your price will appear here.</p>
-              </div>
-            ) : null}
-
-            {!estimating && estimate?.status === 'priced' ? (
+            {estimate?.status === 'priced' ? (
               <div className="space-y-3">
                 <div className="rounded-sm border border-amber-900/10 bg-white/80 px-3 py-4 text-center">
-                  <p className="font-serif text-4xl font-semibold tracking-tight text-primary">
-                    {formatUsdFromCents(estimate.totalCents)}
-                  </p>
+                  <div className="flex items-center justify-center gap-2">
+                    {estimating ? (
+                      <LoaderCircle className="size-4 animate-spin text-primary" />
+                    ) : null}
+                    <p className="font-serif text-4xl font-semibold tracking-tight text-primary">
+                      {formatUsdFromCents(estimate.totalCents)}
+                    </p>
+                  </div>
                   <p className="mt-1 text-sm text-zinc-600">
                     Incl. est. tax
                     {estimate.taxRateBps != null
                       ? ` (${(estimate.taxRateBps / 100).toFixed(2)}%)`
                       : ''}
                   </p>
+                  {estimateBody._provisionalSqft ? (
+                    <p className="mt-1 text-xs text-amber-800/80">
+                      Using 600 sq. ft. placeholder — enter your exact size for a precise total.
+                    </p>
+                  ) : null}
+                  {form.cadence !== 'one_time' && form.service === 'standard' ? (
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Includes estimated {form.cadence} recurring rate.
+                    </p>
+                  ) : null}
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div className="rounded-sm border border-amber-900/10 bg-white/60 px-3 py-2">
@@ -949,15 +959,20 @@ export function PricingCalculator() {
                     </p>
                   </div>
                 </div>
-                <details className="rounded-sm border border-amber-900/10 bg-white/60 px-3 py-2 text-sm open:pb-3">
-                  <summary className="cursor-pointer font-medium text-zinc-800">
-                    Itemized breakdown
-                  </summary>
-                  <ul className="mt-2 max-h-48 space-y-1.5 overflow-auto text-zinc-600">
+                {estimate.reasons.length > 0 ? (
+                  <ul className="space-y-1 text-xs text-amber-900/80">
+                    {estimate.reasons.map((reason) => (
+                      <li key={reason}>• {reason}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                <div className="rounded-sm border border-amber-900/10 bg-white/60 px-3 py-2 text-sm">
+                  <p className="font-medium text-zinc-800">Itemized breakdown</p>
+                  <ul className="mt-2 max-h-52 space-y-1.5 overflow-auto text-zinc-600">
                     {estimate.lines.map((line) => (
                       <li
                         key={line.id}
-                        className="flex justify-between gap-3 border-b border-amber-900/10 pb-1.5"
+                        className="flex justify-between gap-3 border-b border-amber-900/10 pb-1.5 last:border-0"
                       >
                         <span className="min-w-0">{line.label}</span>
                         <span className="shrink-0 font-medium text-zinc-800">
@@ -966,11 +981,11 @@ export function PricingCalculator() {
                       </li>
                     ))}
                   </ul>
-                </details>
+                </div>
               </div>
             ) : null}
 
-            {!estimating && estimate?.status === 'quote_required' ? (
+            {estimate?.status === 'quote_required' ? (
               <div className="space-y-3 rounded-sm border border-amber-900/10 bg-white/80 px-3 py-3">
                 <p className="text-xl font-semibold text-zinc-800">Custom quote</p>
                 <ul className="space-y-1.5 text-sm text-zinc-600">
@@ -987,6 +1002,13 @@ export function PricingCalculator() {
                     {formatUsdFromCents(estimate.commercialReferenceCents)} before tax (not a quote).
                   </p>
                 ) : null}
+              </div>
+            ) : null}
+
+            {!estimate && !estimating ? (
+              <div className="rounded-sm border border-amber-900/10 bg-white/70 px-3 py-4 text-center">
+                <p className="font-serif text-3xl font-semibold tracking-tight text-zinc-400">—</p>
+                <p className="mt-1 text-sm text-zinc-600">Your price will appear here.</p>
               </div>
             ) : null}
           </div>

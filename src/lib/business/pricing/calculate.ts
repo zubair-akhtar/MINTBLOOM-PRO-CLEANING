@@ -73,11 +73,13 @@ export function calculateEstimate(input: EstimateInput, settings: PricingSetting
   if (input.kitchens > 1) {
     reasons.push('Multiple kitchens require a customized quote.');
   }
+  // Soft review flags — keep a live priced estimate; staff confirms on submit.
+  const reviewNotes: string[] = [];
   if (input.severeOrUnknownCondition) {
-    reasons.push('Severe or unknown condition requires staff review.');
+    reviewNotes.push('Severe or unknown condition will be confirmed by staff.');
   }
   if (input.highWorkRequested) {
-    reasons.push('High-surface work requires separate assessment.');
+    reviewNotes.push('High-surface work will be assessed separately.');
   }
   if (input.travelMiles !== null) {
     const band = resolveTravelBand(input.travelMiles, settings);
@@ -176,7 +178,7 @@ export function calculateEstimate(input: EstimateInput, settings: PricingSetting
     discountCents = roundCents(coreCents * pct);
     lines.push({
       id: 'discount',
-      label: `${input.cadence} recurring discount`,
+      label: `${input.cadence} recurring discount (${Math.round(pct * 100)}%)`,
       amountCents: -discountCents,
       taxable: true,
     });
@@ -279,7 +281,7 @@ export function calculateEstimate(input: EstimateInput, settings: PricingSetting
 
   return {
     status: 'priced',
-    reasons: [],
+    reasons: reviewNotes,
     service: input.service,
     lines,
     coreCents,

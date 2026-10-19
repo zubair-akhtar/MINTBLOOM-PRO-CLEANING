@@ -27,23 +27,36 @@ function parseSettings(value: unknown): PricingSettings {
 }
 
 export async function ensureActiveRateCard() {
-  const active = await prisma.pricingRateCard.findFirst({
-    where: { isActive: true },
-    orderBy: { version: 'desc' },
-  });
-  if (active) {
-    return { ...active, settings: parseSettings(active.settings) };
-  }
+  try {
+    const active = await prisma.pricingRateCard.findFirst({
+      where: { isActive: true },
+      orderBy: { version: 'desc' },
+    });
+    if (active) {
+      return { ...active, settings: parseSettings(active.settings) };
+    }
 
-  const created = await prisma.pricingRateCard.create({
-    data: {
+    const created = await prisma.pricingRateCard.create({
+      data: {
+        version: 1,
+        label: LAUNCH_PRICING_LABEL,
+        isActive: true,
+        settings: DEFAULT_PRICING_SETTINGS as object,
+      },
+    });
+    return { ...created, settings: parseSettings(created.settings) };
+  } catch {
+    // DB / table unavailable — serve launch defaults so the calculator still works.
+    return {
+      id: 'defaults',
       version: 1,
       label: LAUNCH_PRICING_LABEL,
       isActive: true,
-      settings: DEFAULT_PRICING_SETTINGS as object,
-    },
-  });
-  return { ...created, settings: parseSettings(created.settings) };
+      settings: DEFAULT_PRICING_SETTINGS,
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+    };
+  }
 }
 
 export async function getActivePricingSettings(): Promise<{
@@ -80,17 +93,46 @@ export async function saveNewRateCardVersion(input: {
   return { version: nextVersion };
 }
 
+/** Launch fallback when city is blank or market row is missing (keeps live estimates working). */
+const LAUNCH_ESTIMATE_FALLBACK = {
+  id: 'launch-fallback',
+  name: 'Lubbock',
+  city: 'Lubbock',
+  state: 'TX',
+  isActive: true,
+  pricingEnabled: true,
+  combinedTaxRateBps: 825,
+  createdAt: new Date(0),
+  updatedAt: new Date(0),
+};
+
 export async function resolveMarketForEstimate(city: string, state: string) {
-  const normalizedCity = city.trim();
-  const normalizedState = state.trim().toUpperCase();
-  const market = await prisma.serviceMarket.findFirst({
-    where: {
-      city: { equals: normalizedCity, mode: 'insensitive' },
-      state: { equals: normalizedState, mode: 'insensitive' },
-      isActive: true,
-    },
-  });
-  return market;
+  const normalizedCity = city.trim() || 'Lubbock';
+  const normalizedState = (state.trim() || 'TX').toUpperCase();
+  try {
+    const market = await prisma.serviceMarket.findFirst({
+      where: {
+        city: { equals: normalizedCity, mode: 'insensitive' },
+        state: { equals: normalizedState, mode: 'insensitive' },
+        isActive: true,
+      },
+    });
+    if (market) return market;
+
+    // Prefer Lubbock launch market when the typed city is not configured yet.
+    const launch = await prisma.serviceMarket.findFirst({
+      where: {
+        city: { equals: 'Lubbock', mode: 'insensitive' },
+        state: { equals: 'TX', mode: 'insensitive' },
+        isActive: true,
+        pricingEnabled: true,
+      },
+    });
+    if (launch) return launch;
+  } catch {
+    // Tables missing / DB unavailable — still return a priced preview.
+  }
+  return { ...LAUNCH_ESTIMATE_FALLBACK };
 }
 
 export async function listMarketsForAdmin() {

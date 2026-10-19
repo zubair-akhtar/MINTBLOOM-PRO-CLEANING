@@ -57,7 +57,10 @@ const DEFAULT_PRICING_SETTINGS = {
     { maxMilesInclusive: 50, feeCents: 6000 },
     { maxMilesInclusive: null, feeCents: 0, quoteRequired: true },
   ],
-  addOns: [],
+  addOns: [
+    { id: 'oven', label: 'Oven interior', unitCents: 6000, includedInMove: true },
+    { id: 'fridge', label: 'Refrigerator / freezer interior', unitCents: 4500, includedInMove: true },
+  ],
   baseboardsPerStartedThousandCents: 4000,
   cabinetInteriorBaseCents: 6000,
   cabinetInteriorIncludedDoors: 20,
@@ -75,17 +78,32 @@ const DEFAULT_PRICING_SETTINGS = {
   blindCents: 800,
 };
 
-const launch = new Set(['Lubbock', 'New Deal', 'Wolfforth', 'Plainview']);
+const launchPricingCities = new Set(['Lubbock', 'New Deal', 'Wolfforth', 'Plainview']);
+const markets = [
+  { name: 'Lubbock', city: 'Lubbock', state: 'TX' },
+  { name: 'New Deal', city: 'New Deal', state: 'TX' },
+  { name: 'Wolfforth', city: 'Wolfforth', state: 'TX' },
+  { name: 'Plainview', city: 'Plainview', state: 'TX' },
+  { name: 'Houston', city: 'Houston', state: 'TX' },
+  { name: 'Dallas', city: 'Dallas', state: 'TX' },
+  { name: 'Austin', city: 'Austin', state: 'TX' },
+];
 
 async function main() {
-  const markets = await prisma.serviceMarket.findMany();
-  for (const m of markets) {
-    const pricingEnabled = launch.has(m.city);
-    await prisma.serviceMarket.update({
-      where: { id: m.id },
-      data: {
+  for (const market of markets) {
+    const pricingEnabled = launchPricingCities.has(market.city);
+    await prisma.serviceMarket.upsert({
+      where: { city_state: { city: market.city, state: market.state } },
+      create: {
+        ...market,
         pricingEnabled,
-        combinedTaxRateBps: pricingEnabled ? 825 : m.combinedTaxRateBps,
+        combinedTaxRateBps: pricingEnabled ? 825 : null,
+      },
+      update: {
+        name: market.name,
+        isActive: true,
+        pricingEnabled,
+        combinedTaxRateBps: pricingEnabled ? 825 : null,
       },
     });
   }
@@ -101,7 +119,10 @@ async function main() {
       },
     });
   }
-  console.log('Pricing seed OK');
+
+  const count = await prisma.serviceMarket.count();
+  const card = await prisma.pricingRateCard.findFirst({ where: { isActive: true } });
+  console.log(`Pricing seed OK — markets=${count} rateCard=v${card?.version ?? 'none'}`);
 }
 
 main()
