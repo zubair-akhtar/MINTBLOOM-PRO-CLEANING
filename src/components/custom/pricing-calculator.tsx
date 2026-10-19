@@ -196,6 +196,53 @@ export function PricingCalculator() {
     };
   }, [form, bedroomsValue]);
 
+  const selectionDetails = useMemo(() => {
+    const serviceLabel = SERVICES.find((s) => s.id === form.service)?.label ?? form.service;
+    const sqftLabel = form.squareFeet.trim()
+      ? `${n(form.squareFeet).toLocaleString()} sq. ft.`
+      : '600 sq. ft. (placeholder)';
+    const bedsLabel = form.bedrooms === '5plus' ? '5+' : form.bedrooms === '0' ? 'Studio' : form.bedrooms;
+    const cadenceLabel =
+      form.cadence === 'one_time'
+        ? 'One time'
+        : form.cadence === 'biweekly'
+          ? 'Biweekly'
+          : form.cadence.charAt(0).toUpperCase() + form.cadence.slice(1);
+
+    const rows: { label: string; value: string }[] = [
+      { label: 'Service', value: serviceLabel },
+      { label: 'Size', value: sqftLabel },
+      { label: 'Bedrooms', value: String(bedsLabel) },
+      {
+        label: 'Baths',
+        value: `${n(form.fullBaths)} full · ${n(form.halfBaths)} half`,
+      },
+    ];
+    if (n(form.offices) > 0) rows.push({ label: 'Offices', value: String(n(form.offices)) });
+    if (n(form.extraLivingRooms) > 0) {
+      rows.push({ label: 'Extra living', value: String(n(form.extraLivingRooms)) });
+    }
+    if (n(form.kitchens) > 1) rows.push({ label: 'Kitchens', value: String(n(form.kitchens)) });
+    rows.push({ label: 'Frequency', value: cadenceLabel });
+
+    const addOns: string[] = [];
+    if (n(form.oven) > 0) addOns.push(`Oven ×${n(form.oven)}`);
+    if (n(form.fridge) > 0) addOns.push(`Fridge ×${n(form.fridge)}`);
+    if (form.baseboards) addOns.push('Baseboards');
+    if (n(form.interiorWindows) > 0) addOns.push(`Windows ×${n(form.interiorWindows)}`);
+    if (n(form.laundry) > 0) addOns.push(`Laundry ×${n(form.laundry)}`);
+    if (n(form.linenChanges) > 0) addOns.push(`Linens ×${n(form.linenChanges)}`);
+    if (n(form.dishes) > 0) addOns.push(`Dishes ×${n(form.dishes)}`);
+    if (n(form.garage) > 0) addOns.push(`Garage ×${n(form.garage)}`);
+    if (form.petHairNeeded) addOns.push('Pet hair');
+    if (form.rushRequested) addOns.push('Rush');
+    if (form.highWorkRequested) addOns.push('High surfaces');
+    if (form.severeOrUnknownCondition) addOns.push('Severe condition');
+    if (addOns.length) rows.push({ label: 'Add-ons', value: addOns.join(', ') });
+
+    return rows;
+  }, [form]);
+
   useEffect(() => {
     let active = true;
     const timer = setTimeout(() => {
@@ -215,7 +262,7 @@ export function PricingCalculator() {
         .finally(() => {
           if (active) setEstimating(false);
         });
-    }, 200);
+    }, 120);
     return () => {
       active = false;
       clearTimeout(timer);
@@ -896,30 +943,18 @@ export function PricingCalculator() {
           <div className="space-y-4">
             <div className="border-b border-amber-900/10 pb-3 text-center">
               <p className="text-xs font-bold tracking-[0.16em] text-primary uppercase">Your estimate</p>
-              <p className="mt-1 text-sm text-zinc-600">
-                {STEPS[step]?.title ?? 'Estimate'} · updates as you fill details
-              </p>
+              <p className="mt-1 text-sm text-zinc-600">Updates on every selection — no address needed yet</p>
             </div>
 
-            {/* Note first */}
-            <div className="rounded-sm border border-dashed border-amber-900/20 bg-[#fffdf8] px-3 py-2.5">
-              <p className="text-[11px] font-bold tracking-wide text-amber-900/70 uppercase">Note</p>
-              <p className="mt-1 text-sm leading-relaxed text-zinc-700">
-                No payment online — submit a request and we confirm the final price with you.
-                Total updates live as you change service, size, rooms, and add-ons.
-              </p>
-            </div>
-
-            {estimating && !estimate ? (
-              <div className="flex items-center gap-2 text-sm text-zinc-600">
-                <LoaderCircle className="size-4 animate-spin text-primary" />
-                Calculating…
-              </div>
-            ) : null}
-
-            {estimate?.status === 'priced' ? (
-              <div className="space-y-3">
-                <div className="rounded-sm border border-amber-900/10 bg-white/80 px-3 py-4 text-center">
+            {/* 1) Estimate cost total first */}
+            <div className="rounded-sm border border-amber-900/10 bg-white/80 px-3 py-4 text-center">
+              {estimating && !estimate ? (
+                <div className="flex items-center justify-center gap-2 text-sm text-zinc-600">
+                  <LoaderCircle className="size-4 animate-spin text-primary" />
+                  Calculating…
+                </div>
+              ) : estimate?.status === 'priced' ? (
+                <>
                   <div className="flex items-center justify-center gap-2">
                     {estimating ? (
                       <LoaderCircle className="size-4 animate-spin text-primary" />
@@ -929,87 +964,109 @@ export function PricingCalculator() {
                     </p>
                   </div>
                   <p className="mt-1 text-sm text-zinc-600">
-                    Incl. est. tax
+                    Est. total incl. tax
                     {estimate.taxRateBps != null
                       ? ` (${(estimate.taxRateBps / 100).toFixed(2)}%)`
                       : ''}
                   </p>
-                  {estimateBody._provisionalSqft ? (
-                    <p className="mt-1 text-xs text-amber-800/80">
-                      Using 600 sq. ft. placeholder — enter your exact size for a precise total.
-                    </p>
-                  ) : null}
-                  {form.cadence !== 'one_time' && form.service === 'standard' ? (
-                    <p className="mt-1 text-xs text-zinc-500">
-                      Includes estimated {form.cadence} recurring rate.
-                    </p>
-                  ) : null}
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="rounded-sm border border-amber-900/10 bg-white/60 px-3 py-2">
-                    <p className="text-zinc-500">Pre-tax</p>
-                    <p className="font-semibold text-zinc-800">
-                      {formatUsdFromCents(estimate.subtotalCents)}
-                    </p>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-left text-sm">
+                    <div className="rounded-sm border border-amber-900/10 bg-[#fffdf8] px-2.5 py-1.5">
+                      <p className="text-xs text-zinc-500">Pre-tax</p>
+                      <p className="font-semibold text-zinc-800">
+                        {formatUsdFromCents(estimate.subtotalCents)}
+                      </p>
+                    </div>
+                    <div className="rounded-sm border border-amber-900/10 bg-[#fffdf8] px-2.5 py-1.5">
+                      <p className="text-xs text-zinc-500">Tax</p>
+                      <p className="font-semibold text-zinc-800">
+                        {formatUsdFromCents(estimate.taxCents)}
+                      </p>
+                    </div>
                   </div>
-                  <div className="rounded-sm border border-amber-900/10 bg-white/60 px-3 py-2">
-                    <p className="text-zinc-500">Tax</p>
-                    <p className="font-semibold text-zinc-800">
-                      {formatUsdFromCents(estimate.taxCents)}
-                    </p>
-                  </div>
-                </div>
-                {estimate.reasons.length > 0 ? (
-                  <ul className="space-y-1 text-xs text-amber-900/80">
-                    {estimate.reasons.map((reason) => (
-                      <li key={reason}>• {reason}</li>
-                    ))}
-                  </ul>
-                ) : null}
-                <div className="rounded-sm border border-amber-900/10 bg-white/60 px-3 py-2 text-sm">
-                  <p className="font-medium text-zinc-800">Itemized breakdown</p>
-                  <ul className="mt-2 max-h-52 space-y-1.5 overflow-auto text-zinc-600">
-                    {estimate.lines.map((line) => (
-                      <li
-                        key={line.id}
-                        className="flex justify-between gap-3 border-b border-amber-900/10 pb-1.5 last:border-0"
-                      >
-                        <span className="min-w-0">{line.label}</span>
-                        <span className="shrink-0 font-medium text-zinc-800">
-                          {formatUsdFromCents(line.amountCents)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            ) : null}
+                </>
+              ) : estimate?.status === 'quote_required' ? (
+                <>
+                  <p className="font-serif text-3xl font-semibold tracking-tight text-zinc-800">
+                    Custom quote
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-600">We will confirm pricing after review.</p>
+                </>
+              ) : (
+                <>
+                  <p className="font-serif text-3xl font-semibold tracking-tight text-zinc-400">—</p>
+                  <p className="mt-1 text-sm text-zinc-600">Select options to see your total.</p>
+                </>
+              )}
+            </div>
 
-            {estimate?.status === 'quote_required' ? (
-              <div className="space-y-3 rounded-sm border border-amber-900/10 bg-white/80 px-3 py-3">
-                <p className="text-xl font-semibold text-zinc-800">Custom quote</p>
-                <ul className="space-y-1.5 text-sm text-zinc-600">
+            {/* 2) Note + selected details */}
+            <div className="rounded-sm border border-dashed border-amber-900/20 bg-[#fffdf8] px-3 py-2.5">
+              <p className="text-[11px] font-bold tracking-wide text-amber-900/70 uppercase">Note</p>
+              <p className="mt-1 text-sm leading-relaxed text-zinc-700">
+                No payment online — submit a request and we confirm the final price with you.
+                Contact &amp; address are only needed at the last step.
+              </p>
+              {estimateBody._provisionalSqft ? (
+                <p className="mt-2 text-xs text-amber-800/90">
+                  Size uses 600 sq. ft. until you enter exact square footage.
+                </p>
+              ) : null}
+              {estimate?.status === 'priced' &&
+              form.cadence !== 'one_time' &&
+              form.service === 'standard' ? (
+                <p className="mt-2 text-xs text-zinc-500">
+                  Total includes estimated {form.cadence} recurring discount.
+                </p>
+              ) : null}
+              {estimate?.reasons?.length ? (
+                <ul className="mt-2 space-y-1 text-xs text-amber-900/80">
                   {estimate.reasons.map((reason) => (
-                    <li key={reason} className="flex gap-2">
-                      <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" />
-                      <span>{reason}</span>
+                    <li key={reason}>• {reason}</li>
+                  ))}
+                </ul>
+              ) : null}
+
+              <div className="mt-3 border-t border-amber-900/10 pt-2.5">
+                <p className="text-[11px] font-bold tracking-wide text-amber-900/70 uppercase">
+                  Your selections
+                </p>
+                <dl className="mt-2 space-y-1.5 text-sm">
+                  {selectionDetails.map((row) => (
+                    <div key={row.label} className="flex justify-between gap-3">
+                      <dt className="shrink-0 text-zinc-500">{row.label}</dt>
+                      <dd className="text-right font-medium text-zinc-800">{row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            </div>
+
+            {estimate?.status === 'priced' && estimate.lines.length > 0 ? (
+              <div className="rounded-sm border border-amber-900/10 bg-white/60 px-3 py-2 text-sm">
+                <p className="font-medium text-zinc-800">Itemized breakdown</p>
+                <ul className="mt-2 max-h-52 space-y-1.5 overflow-auto text-zinc-600">
+                  {estimate.lines.map((line) => (
+                    <li
+                      key={line.id}
+                      className="flex justify-between gap-3 border-b border-amber-900/10 pb-1.5 last:border-0"
+                    >
+                      <span className="min-w-0">{line.label}</span>
+                      <span className="shrink-0 font-medium text-zinc-800">
+                        {formatUsdFromCents(line.amountCents)}
+                      </span>
                     </li>
                   ))}
                 </ul>
-                {estimate.commercialReferenceCents != null && form.service === 'commercial' ? (
-                  <p className="text-xs text-zinc-500">
-                    Internal starting reference:{' '}
-                    {formatUsdFromCents(estimate.commercialReferenceCents)} before tax (not a quote).
-                  </p>
-                ) : null}
               </div>
             ) : null}
 
-            {!estimate && !estimating ? (
-              <div className="rounded-sm border border-amber-900/10 bg-white/70 px-3 py-4 text-center">
-                <p className="font-serif text-3xl font-semibold tracking-tight text-zinc-400">—</p>
-                <p className="mt-1 text-sm text-zinc-600">Your price will appear here.</p>
-              </div>
+            {estimate?.status === 'quote_required' &&
+            estimate.commercialReferenceCents != null &&
+            form.service === 'commercial' ? (
+              <p className="text-xs text-zinc-500">
+                Internal starting reference:{' '}
+                {formatUsdFromCents(estimate.commercialReferenceCents)} before tax (not a quote).
+              </p>
             ) : null}
           </div>
         </div>
