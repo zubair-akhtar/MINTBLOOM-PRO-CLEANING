@@ -1049,7 +1049,7 @@ export function PricingCalculator() {
           <div className="space-y-4">
             <div className="border-b border-amber-900/10 pb-3 text-center">
               <p className="text-xs font-bold tracking-[0.16em] text-primary uppercase">Your estimate</p>
-              <p className="mt-1 text-sm text-zinc-600">Updates on every selection</p>
+              <p className="mt-1 text-sm text-zinc-600">Price updates with your selections</p>
             </div>
 
             {/* 1) Estimate cost total first */}
