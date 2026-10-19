@@ -380,16 +380,30 @@ export function PricingCalculator() {
           </p>
         </header>
 
-        {/* Chevron wizard — theme colors; reached steps active, upcoming muted */}
-        <nav aria-label="Estimate steps" className="w-full overflow-x-auto pb-1">
-          <ol className="flex min-w-[18rem] w-full">
+        {/* Chevron wizard: active = primary; inactive = light gray; white arrow line only */}
+        <nav aria-label="Estimate steps" className="w-full overflow-hidden rounded-md">
+          <ol className="flex w-full">
             {STEPS.map((item, index) => {
               const Icon = item.icon;
-              const reached = index <= step; // current + completed = active style
+              const reached = index <= step;
               const isFirst = index === 0;
               const isLast = index === STEPS.length - 1;
+              const arrow = 16;
+              const clipPath = isLast
+                ? `polygon(0 0, 100% 0, 100% 100%, 0 100%, ${arrow}px 50%)`
+                : isFirst
+                  ? `polygon(0 0, calc(100% - ${arrow}px) 0, 100% 50%, calc(100% - ${arrow}px) 100%, 0 100%)`
+                  : `polygon(0 0, calc(100% - ${arrow}px) 0, 100% 50%, calc(100% - ${arrow}px) 100%, 0 100%, ${arrow}px 50%)`;
+
               return (
-                <li key={item.id} className="relative min-w-0 flex-1">
+                <li
+                  key={item.id}
+                  className="relative min-w-0 flex-1"
+                  style={{
+                    marginLeft: isFirst ? 0 : `-${arrow - 2}px`,
+                    zIndex: STEPS.length - index,
+                  }}
+                >
                   <button
                     type="button"
                     disabled={index > step}
@@ -401,24 +415,16 @@ export function PricingCalculator() {
                       }
                     }}
                     className={cn(
-                      'relative flex h-[4.75rem] w-full flex-col items-center justify-center gap-1 px-2 text-center transition-colors sm:h-[5.25rem] sm:px-4',
+                      'flex h-[4.75rem] w-full flex-col items-center justify-center gap-1 px-4 text-center transition-colors sm:h-[5.25rem] sm:px-6',
                       reached
                         ? 'bg-primary text-primary-foreground'
-                        : 'bg-brand-900/80 text-primary-foreground/55',
+                        : 'bg-zinc-200 text-zinc-600',
                       index > step && 'cursor-not-allowed',
-                      isFirst && 'rounded-l-md',
-                      isLast && 'rounded-r-md',
                     )}
                     style={{
-                      clipPath: isLast
-                        ? isFirst
-                          ? undefined
-                          : 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 12px 50%)'
-                        : isFirst
-                          ? 'polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%)'
-                          : 'polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%, 12px 50%)',
-                      marginLeft: isFirst ? 0 : '-12px',
-                      zIndex: STEPS.length - index,
+                      clipPath,
+                      // White chevron border line between steps (no gap)
+                      filter: isLast ? undefined : 'drop-shadow(2px 0 0 #ffffff)',
                     }}
                   >
                     <span
@@ -426,13 +432,17 @@ export function PricingCalculator() {
                         'flex size-7 items-center justify-center rounded-full text-xs font-bold sm:size-8 sm:text-sm',
                         reached
                           ? 'bg-white text-primary shadow-sm'
-                          : 'bg-white/25 text-primary-foreground/80',
+                          : 'bg-white text-zinc-500',
                       )}
                     >
-                      {index < step ? <Check className="size-3.5 sm:size-4" strokeWidth={2.5} /> : index + 1}
+                      {index < step ? (
+                        <Check className="size-3.5 sm:size-4" strokeWidth={2.5} />
+                      ) : (
+                        index + 1
+                      )}
                     </span>
-                    <span className="flex max-w-full items-center gap-1 px-1">
-                      <Icon className="hidden size-3 shrink-0 opacity-90 sm:block" aria-hidden />
+                    <span className="flex max-w-full items-center justify-center gap-1">
+                      <Icon className="hidden size-3 shrink-0 sm:block" aria-hidden />
                       <span className="truncate text-[10px] font-semibold tracking-wide sm:text-xs">
                         {item.short}
                       </span>
