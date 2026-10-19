@@ -73,12 +73,15 @@ type FormState = {
   cadence: 'one_time' | 'weekly' | 'biweekly' | 'monthly';
   oven: string;
   fridge: string;
+  cabinets: string;
   baseboards: boolean;
   linenChanges: string;
   laundry: string;
   dishes: string;
   garage: string;
   interiorWindows: string;
+  windowTracks: string;
+  blinds: string;
   petHairNeeded: boolean;
   rushRequested: boolean;
   highWorkRequested: boolean;
@@ -107,12 +110,15 @@ const initial: FormState = {
   cadence: 'one_time',
   oven: '0',
   fridge: '0',
+  cabinets: '0',
   baseboards: false,
   linenChanges: '0',
   laundry: '0',
   dishes: '0',
   garage: '0',
   interiorWindows: '0',
+  windowTracks: '0',
+  blinds: '0',
   petHairNeeded: false,
   rushRequested: false,
   highWorkRequested: false,
@@ -174,17 +180,20 @@ export function PricingCalculator() {
       extraLivingRooms: Math.max(0, n(form.extraLivingRooms)),
       kitchens: Math.max(1, n(form.kitchens)),
       cadence: form.cadence,
-      // Show recurring discount in the live estimate when a cadence is selected.
-      isFirstRecurringVisit: form.cadence === 'one_time',
+      // PDF: first visit is full price; recurring discount from second Standard visit.
+      isFirstRecurringVisit: true,
       addOnQuantities: {
         oven: Math.max(0, n(form.oven)),
         fridge: Math.max(0, n(form.fridge)),
+        cabinets: Math.max(0, n(form.cabinets)),
         baseboards: form.baseboards ? 1 : 0,
         linenChanges: Math.max(0, n(form.linenChanges)),
         laundry: Math.max(0, n(form.laundry)),
         dishes: Math.max(0, n(form.dishes)),
         garage: Math.max(0, n(form.garage)),
         interiorWindows: Math.max(0, n(form.interiorWindows)),
+        windowTracks: Math.max(0, n(form.windowTracks)),
+        blinds: Math.max(0, n(form.blinds)),
       },
       heavyConditionApproved: false,
       petHairNeeded: form.petHairNeeded,
@@ -228,8 +237,11 @@ export function PricingCalculator() {
     const addOns: string[] = [];
     if (n(form.oven) > 0) addOns.push(`Oven ×${n(form.oven)}`);
     if (n(form.fridge) > 0) addOns.push(`Fridge ×${n(form.fridge)}`);
+    if (n(form.cabinets) > 0) addOns.push(`Cabinets ×${n(form.cabinets)} doors`);
     if (form.baseboards) addOns.push('Baseboards');
     if (n(form.interiorWindows) > 0) addOns.push(`Windows ×${n(form.interiorWindows)}`);
+    if (n(form.windowTracks) > 0) addOns.push(`Tracks ×${n(form.windowTracks)}`);
+    if (n(form.blinds) > 0) addOns.push(`Blinds ×${n(form.blinds)}`);
     if (n(form.laundry) > 0) addOns.push(`Laundry ×${n(form.laundry)}`);
     if (n(form.linenChanges) > 0) addOns.push(`Linens ×${n(form.linenChanges)}`);
     if (n(form.dishes) > 0) addOns.push(`Dishes ×${n(form.dishes)}`);
@@ -680,17 +692,21 @@ export function PricingCalculator() {
                 <option value="monthly">Monthly</option>
               </select>
               <p className="text-xs text-muted-foreground">
-                Selecting a recurring frequency updates the live estimate with the Standard discount.
+                First Standard visit is full price. Weekly 10% / biweekly 7% / monthly 5% apply from the
+                second completed recurring visit.
               </p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="grid gap-2">
-                <Label htmlFor="oven">Oven interiors</Label>
+                <Label htmlFor="oven">Oven interiors ($60 each)</Label>
                 <Input id="oven" type="number" min={0} className="h-11" value={form.oven} onChange={(e) => set('oven', e.target.value)} />
+                {form.service === 'move' ? (
+                  <p className="text-xs text-muted-foreground">1 oven included with Move.</p>
+                ) : null}
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="fridge">Fridge interiors</Label>
+                <Label htmlFor="fridge">Fridge interiors ($45 each)</Label>
                 <Input
                   id="fridge"
                   type="number"
@@ -699,9 +715,26 @@ export function PricingCalculator() {
                   value={form.fridge}
                   onChange={(e) => set('fridge', e.target.value)}
                 />
+                {form.service === 'move' ? (
+                  <p className="text-xs text-muted-foreground">1 fridge included with Move.</p>
+                ) : null}
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="windows">Interior window panes</Label>
+                <Label htmlFor="cabinets">Cabinet doors/drawers</Label>
+                <Input
+                  id="cabinets"
+                  type="number"
+                  min={0}
+                  className="h-11"
+                  value={form.cabinets}
+                  onChange={(e) => set('cabinets', e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  $60 up to 20; then $3 each. Included with Move.
+                </p>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="windows">Interior window panes ($8, $40 min)</Label>
                 <Input
                   id="windows"
                   type="number"
@@ -712,7 +745,43 @@ export function PricingCalculator() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="laundry">Laundry loads</Label>
+                <Label htmlFor="tracks">Window tracks ($5 each)</Label>
+                <Input
+                  id="tracks"
+                  type="number"
+                  min={0}
+                  className="h-11"
+                  value={form.windowTracks}
+                  onChange={(e) => set('windowTracks', e.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="blinds">Blinds hand-wipe ($8 each)</Label>
+                <Input
+                  id="blinds"
+                  type="number"
+                  min={0}
+                  className="h-11"
+                  value={form.blinds}
+                  onChange={(e) => set('blinds', e.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="linens">
+                  {form.service === 'airbnb' ? 'Bed changes (2 included)' : 'Linen / bed changes ($12)'}
+                </Label>
+                <Input
+                  id="linens"
+                  type="number"
+                  min={0}
+                  max={form.service === 'airbnb' ? 6 : undefined}
+                  className="h-11"
+                  value={form.linenChanges}
+                  onChange={(e) => set('linenChanges', e.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="laundry">Laundry loads ($30, max 2)</Label>
                 <Input
                   id="laundry"
                   type="number"
@@ -723,16 +792,53 @@ export function PricingCalculator() {
                   onChange={(e) => set('laundry', e.target.value)}
                 />
               </div>
+              <div className="grid gap-2">
+                <Label htmlFor="dishes">Dish blocks ($25 / 15 min, max 2)</Label>
+                <Input
+                  id="dishes"
+                  type="number"
+                  min={0}
+                  max={2}
+                  className="h-11"
+                  value={form.dishes}
+                  onChange={(e) => set('dishes', e.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="garage">Garage sweep ($40 / bay)</Label>
+                <Input
+                  id="garage"
+                  type="number"
+                  min={0}
+                  className="h-11"
+                  value={form.garage}
+                  onChange={(e) => set('garage', e.target.value)}
+                />
+              </div>
             </div>
 
             <div className="grid gap-3 rounded-xl bg-muted/40 p-3">
+              {form.service === 'deep' || form.service === 'move' ? (
+                <p className="text-sm text-muted-foreground">
+                  Hand-wiped baseboards: <span className="font-medium text-foreground">Included</span>
+                </p>
+              ) : (
+                <label className="flex items-center gap-3 text-sm">
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-[var(--primary)]"
+                    checked={form.baseboards}
+                    onChange={(e) => set('baseboards', e.target.checked)}
+                  />
+                  Hand-wiped baseboards ($40 per started 1,000 sq. ft.)
+                </label>
+              )}
               {(
                 [
-                  ['baseboards', 'Hand-wiped baseboards', form.baseboards],
-                  ['petHairNeeded', 'Extra pet-hair work', form.petHairNeeded],
-                  ['rushRequested', 'Rush request', form.rushRequested],
-                  ['highWorkRequested', 'High fans / elevated surfaces', form.highWorkRequested],
-                  ['severeOrUnknownCondition', 'Severe or unknown condition', form.severeOrUnknownCondition],
+                  ['petHairNeeded', 'Extra pet-hair work ($35)', form.petHairNeeded],
+                  ['rushRequested', 'Rush request ($50, pending confirmation)', form.rushRequested],
+                  ['highWorkRequested', 'High fans / elevated surfaces (quote review)', form.highWorkRequested],
+                  ['severeOrUnknownCondition', 'Severe or unknown condition (quote review)', form.severeOrUnknownCondition],
                 ] as const
               ).map(([key, label, checked]) => (
                 <label key={key} className="flex items-center gap-3 text-sm">
@@ -1011,11 +1117,9 @@ export function PricingCalculator() {
                   Size uses 600 sq. ft. until you enter exact square footage.
                 </p>
               ) : null}
-              {estimate?.status === 'priced' &&
-              form.cadence !== 'one_time' &&
-              form.service === 'standard' ? (
+              {form.cadence !== 'one_time' && form.service === 'standard' ? (
                 <p className="mt-2 text-xs text-zinc-500">
-                  Total includes estimated {form.cadence} recurring discount.
+                  Showing first-visit price. {form.cadence} discount applies from visit 2.
                 </p>
               ) : null}
               {estimate?.reasons?.length ? (

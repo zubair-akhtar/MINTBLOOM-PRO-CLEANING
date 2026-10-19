@@ -73,13 +73,12 @@ export function calculateEstimate(input: EstimateInput, settings: PricingSetting
   if (input.kitchens > 1) {
     reasons.push('Multiple kitchens require a customized quote.');
   }
-  // Soft review flags — keep a live priced estimate; staff confirms on submit.
-  const reviewNotes: string[] = [];
+  // PDF § review gates — clear automated total when selected.
   if (input.severeOrUnknownCondition) {
-    reviewNotes.push('Severe or unknown condition will be confirmed by staff.');
+    reasons.push('Severe or unknown condition requires staff review.');
   }
   if (input.highWorkRequested) {
-    reviewNotes.push('High-surface work will be assessed separately.');
+    reasons.push('High-surface work requires separate assessment.');
   }
   if (input.travelMiles !== null) {
     const band = resolveTravelBand(input.travelMiles, settings);
@@ -281,7 +280,7 @@ export function calculateEstimate(input: EstimateInput, settings: PricingSetting
 
   return {
     status: 'priced',
-    reasons: reviewNotes,
+    reasons: [],
     service: input.service,
     lines,
     coreCents,
