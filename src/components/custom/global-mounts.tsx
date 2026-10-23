@@ -15,6 +15,7 @@ const HIDDEN_ROUTE_PREFIXES = [
   '/login',
   '/signup',
   '/profile',
+  '/book',
 ] as const;
 
 export function GlobalMounts() {

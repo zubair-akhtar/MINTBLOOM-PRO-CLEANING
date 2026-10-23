@@ -219,11 +219,11 @@ export function calculateEstimate(input: EstimateInput, settings: PricingSetting
     });
   }
 
-  if (input.rushRequested) {
+  if (input.rushRequested && settings.rushFeeCents > 0) {
     feesCents += settings.rushFeeCents;
     lines.push({
       id: 'rush',
-      label: 'Rush (pending staff confirmation)',
+      label: `Rush fee ($${ (settings.rushFeeCents / 100).toFixed(0) }, pending confirmation)`,
       amountCents: settings.rushFeeCents,
       taxable: true,
     });
@@ -365,7 +365,11 @@ function priceAddOns(
     total += amount;
     lines.push({
       id: 'oven',
-      label: `Oven interior (${billableOvens})`,
+      label: moveIncluded
+        ? billableOvens === 1
+          ? 'Oven interior (extra)'
+          : `Oven interior (extra ×${billableOvens})`
+        : `Oven interior (${billableOvens})`,
       amountCents: amount,
       taxable: true,
     });
@@ -377,7 +381,11 @@ function priceAddOns(
     total += amount;
     lines.push({
       id: 'fridge',
-      label: `Refrigerator interior (${billableFridges})`,
+      label: moveIncluded
+        ? billableFridges === 1
+          ? 'Refrigerator interior (extra)'
+          : `Refrigerator interior (extra ×${billableFridges})`
+        : `Refrigerator interior (${billableFridges})`,
       amountCents: amount,
       taxable: true,
     });

@@ -33,6 +33,7 @@ export function AddressAutocomplete({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [enabled, setEnabled] = useState(false);
+  const [probed, setProbed] = useState(false);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -40,7 +41,34 @@ export function AddressAutocomplete({
     setQuery(street);
   }, [street]);
 
+  // Probe once whether Places is configured so we can show a plain field when off.
   useEffect(() => {
+    let cancelled = false;
+    fetch('/api/places/autocomplete?input=abc')
+      .then((res) => res.json())
+      .then((data: { enabled?: boolean }) => {
+        if (!cancelled) {
+          setEnabled(Boolean(data.enabled));
+          setProbed(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEnabled(false);
+          setProbed(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) {
+      setPredictions([]);
+      setOpen(false);
+      return;
+    }
     if (query.trim().length < 3) {
       setPredictions([]);
       return;
@@ -55,7 +83,7 @@ export function AddressAutocomplete({
         };
         setEnabled(Boolean(data.enabled));
         setPredictions(data.predictions ?? []);
-        setOpen(true);
+        setOpen(Boolean(data.enabled) && (data.predictions?.length ?? 0) > 0);
       } catch {
         setPredictions([]);
       } finally {
@@ -63,7 +91,7 @@ export function AddressAutocomplete({
       }
     }, 280);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, enabled]);
 
   async function selectPrediction(prediction: Prediction) {
     setQuery(prediction.description);
@@ -87,6 +115,39 @@ export function AddressAutocomplete({
     } catch {
       /* manual fields remain editable */
     }
+  }
+
+  // Plain street field when Places is off (or still probing) — no combobox affordance.
+  if (!enabled) {
+    return (
+      <div className="grid gap-2">
+        <Label htmlFor="street">
+          Street address {required ? <span className="text-destructive">*</span> : null}
+        </Label>
+        <div className="relative">
+          <MapPin className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-primary" />
+          <Input
+            id="street"
+            autoComplete="street-address"
+            className="h-11 pl-10"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              onStreetChange(e.target.value);
+            }}
+            placeholder="Street number and name"
+            required={required}
+            aria-invalid={error ? true : undefined}
+          />
+        </div>
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
+        {probed ? (
+          <p className="text-xs text-muted-foreground">
+            Type your address, then city, state, and ZIP below.
+          </p>
+        ) : null}
+      </div>
+    );
   }
 
   return (
@@ -113,7 +174,7 @@ export function AddressAutocomplete({
           onBlur={() => {
             blurTimer.current = setTimeout(() => setOpen(false), 150);
           }}
-          placeholder={enabled ? 'Start typing your address…' : 'Street number and name'}
+          placeholder="Start typing your address…"
           required={required}
           aria-invalid={error ? true : undefined}
         />
@@ -122,11 +183,7 @@ export function AddressAutocomplete({
         ) : null}
       </div>
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
-      {enabled ? (
-        <p className="text-xs text-muted-foreground">Suggestions from Google Places when available.</p>
-      ) : (
-        <p className="text-xs text-muted-foreground">Type your address, then city, state, and ZIP below.</p>
-      )}
+      <p className="text-xs text-muted-foreground">Suggestions from Google Places when available.</p>
       {open && predictions.length > 0 ? (
         <ul
           id={listId}

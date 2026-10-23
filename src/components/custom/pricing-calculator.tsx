@@ -135,6 +135,68 @@ function n(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+/** Non-negative integer string for room / qty inputs (blocks negatives). */
+function nonNegIntString(value: string): string {
+  if (value.trim() === '') return '';
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return '0';
+  return String(Math.max(0, parsed));
+}
+
+function todayIsoLocal(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function cadenceDisplay(cadence: FormState['cadence']): string {
+  if (cadence === 'one_time') return 'One time';
+  if (cadence === 'biweekly') return 'Biweekly';
+  if (cadence === 'weekly') return 'Weekly';
+  return 'Monthly';
+}
+
+const QUOTE_ONLY_SERVICES = new Set<ServiceId>(['commercial', 'postConstruction']);
+
+const ADDON_RESET: Pick<
+  FormState,
+  | 'oven'
+  | 'fridge'
+  | 'cabinets'
+  | 'baseboards'
+  | 'linenChanges'
+  | 'laundry'
+  | 'dishes'
+  | 'garage'
+  | 'interiorWindows'
+  | 'windowTracks'
+  | 'blinds'
+  | 'petHairNeeded'
+  | 'rushRequested'
+  | 'highWorkRequested'
+  | 'severeOrUnknownCondition'
+  | 'cadence'
+> = {
+  oven: '0',
+  fridge: '0',
+  cabinets: '0',
+  baseboards: false,
+  linenChanges: '0',
+  laundry: '0',
+  dishes: '0',
+  garage: '0',
+  interiorWindows: '0',
+  windowTracks: '0',
+  blinds: '0',
+  petHairNeeded: false,
+  rushRequested: false,
+  highWorkRequested: false,
+  severeOrUnknownCondition: false,
+  cadence: 'one_time',
+};
+
 function isEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
@@ -160,26 +222,51 @@ export function PricingCalculator() {
     });
   }, []);
 
-  const bedroomsValue = form.bedrooms === '5plus' ? '5plus' : n(form.bedrooms);
+  const setNonNeg = useCallback(
+    (key: keyof FormState, value: string) => {
+      set(key, nonNegIntString(value) as FormState[typeof key]);
+    },
+    [set],
+  );
+
+  function selectService(id: ServiceId) {
+    setForm((prev) => {
+      const next: FormState = { ...prev, service: id };
+      if (id !== 'standard') {
+        next.cadence = 'one_time';
+      }
+      if (QUOTE_ONLY_SERVICES.has(id)) {
+        Object.assign(next, ADDON_RESET);
+      }
+      return next;
+    });
+    setErrors((prev) => {
+      if (!prev.service) return prev;
+      const next = { ...prev };
+      delete next.service;
+      return next;
+    });
+  }
+
+  const bedroomsValue = form.bedrooms === '5plus' ? '5plus' : Math.max(0, n(form.bedrooms));
+  const hasSqft = form.squareFeet.trim() !== '' && n(form.squareFeet) > 0;
+  const isQuoteOnlyService = QUOTE_ONLY_SERVICES.has(form.service);
 
   const estimateBody = useMemo(() => {
-    const sqftRaw = form.squareFeet.trim();
-    const sqftParsed = sqftRaw === '' ? null : n(form.squareFeet);
-    // Provisional size so service / rooms / add-ons update live before sqft is entered.
-    const squareFeet = sqftParsed && sqftParsed > 0 ? sqftParsed : 600;
+    const sqftParsed = hasSqft ? n(form.squareFeet) : null;
     return {
       service: form.service,
       city: form.city || 'Lubbock',
       state: form.state || 'TX',
       zip: form.zip || '79401',
-      squareFeet,
+      squareFeet: sqftParsed,
       bedrooms: bedroomsValue,
       fullBaths: Math.max(0, n(form.fullBaths)),
       halfBaths: Math.max(0, n(form.halfBaths)),
       offices: Math.max(0, n(form.offices)),
       extraLivingRooms: Math.max(0, n(form.extraLivingRooms)),
       kitchens: Math.max(1, n(form.kitchens)),
-      cadence: form.cadence,
+      cadence: form.service === 'standard' ? form.cadence : ('one_time' as const),
       // PDF: first visit is full price; recurring discount from second Standard visit.
       isFirstRecurringVisit: true,
       addOnQuantities: {
@@ -201,85 +288,91 @@ export function PricingCalculator() {
       travelMiles: null,
       highWorkRequested: form.highWorkRequested,
       severeOrUnknownCondition: form.severeOrUnknownCondition,
-      _provisionalSqft: !sqftParsed || sqftParsed <= 0,
     };
-  }, [form, bedroomsValue]);
+  }, [form, bedroomsValue, hasSqft]);
 
   const selectionDetails = useMemo(() => {
     const serviceLabel = SERVICES.find((s) => s.id === form.service)?.label ?? form.service;
-    const sqftLabel = form.squareFeet.trim()
+    const sqftLabel = hasSqft
       ? `${n(form.squareFeet).toLocaleString()} sq. ft.`
-      : '600 sq. ft. (placeholder)';
+      : 'Not entered yet';
     const bedsLabel = form.bedrooms === '5plus' ? '5+' : form.bedrooms === '0' ? 'Studio' : form.bedrooms;
-    const cadenceLabel =
-      form.cadence === 'one_time'
-        ? 'One time'
-        : form.cadence === 'biweekly'
-          ? 'Biweekly'
-          : form.cadence.charAt(0).toUpperCase() + form.cadence.slice(1);
+    const fullBaths = Math.max(0, n(form.fullBaths));
+    const halfBaths = Math.max(0, n(form.halfBaths));
 
     const rows: { label: string; value: string }[] = [
       { label: 'Service', value: serviceLabel },
       { label: 'Size', value: sqftLabel },
-      { label: 'Bedrooms', value: String(bedsLabel) },
-      {
-        label: 'Baths',
-        value: `${n(form.fullBaths)} full · ${n(form.halfBaths)} half`,
-      },
     ];
-    if (n(form.offices) > 0) rows.push({ label: 'Offices', value: String(n(form.offices)) });
-    if (n(form.extraLivingRooms) > 0) {
-      rows.push({ label: 'Extra living', value: String(n(form.extraLivingRooms)) });
-    }
-    if (n(form.kitchens) > 1) rows.push({ label: 'Kitchens', value: String(n(form.kitchens)) });
-    rows.push({ label: 'Frequency', value: cadenceLabel });
 
-    const addOns: string[] = [];
-    if (n(form.oven) > 0) addOns.push(`Oven ×${n(form.oven)}`);
-    if (n(form.fridge) > 0) addOns.push(`Fridge ×${n(form.fridge)}`);
-    if (n(form.cabinets) > 0) addOns.push(`Cabinets ×${n(form.cabinets)} doors`);
-    if (form.baseboards) addOns.push('Baseboards');
-    if (n(form.interiorWindows) > 0) addOns.push(`Windows ×${n(form.interiorWindows)}`);
-    if (n(form.windowTracks) > 0) addOns.push(`Tracks ×${n(form.windowTracks)}`);
-    if (n(form.blinds) > 0) addOns.push(`Blinds ×${n(form.blinds)}`);
-    if (n(form.laundry) > 0) addOns.push(`Laundry ×${n(form.laundry)}`);
-    if (n(form.linenChanges) > 0) addOns.push(`Linens ×${n(form.linenChanges)}`);
-    if (n(form.dishes) > 0) addOns.push(`Dishes ×${n(form.dishes)}`);
-    if (n(form.garage) > 0) addOns.push(`Garage ×${n(form.garage)}`);
-    if (form.petHairNeeded) addOns.push('Pet hair');
-    if (form.rushRequested) addOns.push('Rush');
-    if (form.highWorkRequested) addOns.push('High surfaces');
-    if (form.severeOrUnknownCondition) addOns.push('Severe condition');
-    if (addOns.length) rows.push({ label: 'Add-ons', value: addOns.join(', ') });
+    if (!isQuoteOnlyService) {
+      rows.push(
+        { label: 'Bedrooms', value: String(bedsLabel) },
+        { label: 'Baths', value: `${fullBaths} full · ${halfBaths} half` },
+      );
+      if (n(form.offices) > 0) rows.push({ label: 'Offices', value: String(n(form.offices)) });
+      if (n(form.extraLivingRooms) > 0) {
+        rows.push({ label: 'Extra living', value: String(n(form.extraLivingRooms)) });
+      }
+      if (n(form.kitchens) > 1) rows.push({ label: 'Kitchens', value: String(n(form.kitchens)) });
+      if (form.service === 'standard') {
+        rows.push({ label: 'Frequency', value: cadenceDisplay(form.cadence) });
+      }
+    }
+
+    if (!isQuoteOnlyService) {
+      const addOns: string[] = [];
+      if (n(form.oven) > 0) addOns.push(`Oven ×${n(form.oven)}`);
+      if (n(form.fridge) > 0) addOns.push(`Fridge ×${n(form.fridge)}`);
+      if (n(form.cabinets) > 0) addOns.push(`Cabinets ×${n(form.cabinets)} doors`);
+      if (form.baseboards) addOns.push('Baseboards');
+      if (n(form.interiorWindows) > 0) addOns.push(`Windows ×${n(form.interiorWindows)}`);
+      if (n(form.windowTracks) > 0) addOns.push(`Tracks ×${n(form.windowTracks)}`);
+      if (n(form.blinds) > 0) addOns.push(`Blinds ×${n(form.blinds)}`);
+      if (n(form.laundry) > 0) addOns.push(`Laundry ×${n(form.laundry)}`);
+      if (n(form.linenChanges) > 0) addOns.push(`Linens ×${n(form.linenChanges)}`);
+      if (n(form.dishes) > 0) addOns.push(`Dishes ×${n(form.dishes)}`);
+      if (n(form.garage) > 0) addOns.push(`Garage ×${n(form.garage)}`);
+      if (form.petHairNeeded) addOns.push('Pet hair');
+      if (form.rushRequested) addOns.push('Rush');
+      if (form.highWorkRequested) addOns.push('High surfaces');
+      if (form.severeOrUnknownCondition) addOns.push('Severe condition');
+      if (addOns.length) rows.push({ label: 'Add-ons', value: addOns.join(', ') });
+    }
 
     return rows;
-  }, [form]);
+  }, [form, hasSqft, isQuoteOnlyService]);
 
   useEffect(() => {
+    if (!hasSqft && !isQuoteOnlyService) {
+      setEstimate(null);
+      setEstimating(false);
+      return;
+    }
     let active = true;
+    setEstimate(null);
+    setEstimating(true);
     const timer = setTimeout(() => {
-      setEstimating(true);
-      const { _provisionalSqft: _, ...payload } = estimateBody;
       apiFetch('/api/pricing/estimate', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify(estimateBody),
         schema: EstimateResponse,
       })
         .then((result) => {
           if (active) setEstimate(result);
         })
         .catch(() => {
-          // Keep the last good estimate visible if a request fails mid-edit.
+          if (active) setEstimate(null);
         })
         .finally(() => {
           if (active) setEstimating(false);
         });
-    }, 120);
+    }, 180);
     return () => {
       active = false;
       clearTimeout(timer);
     };
-  }, [estimateBody]);
+  }, [estimateBody, hasSqft, isQuoteOnlyService]);
 
   function validateStep(index: number): boolean {
     const next: FieldErrors = {};
@@ -288,21 +381,29 @@ export function PricingCalculator() {
       if (!form.squareFeet.trim() || n(form.squareFeet) <= 0) {
         next.squareFeet = 'Enter square footage (required for estimate).';
       }
-      if (form.fullBaths === '' || Number.isNaN(n(form.fullBaths))) {
+      if (form.fullBaths === '' || Number.isNaN(n(form.fullBaths)) || n(form.fullBaths) < 0) {
         next.fullBaths = 'Enter full bathrooms (0 is OK).';
       }
-      if (form.halfBaths === '' || Number.isNaN(n(form.halfBaths))) {
+      if (form.halfBaths === '' || Number.isNaN(n(form.halfBaths)) || n(form.halfBaths) < 0) {
         next.halfBaths = 'Enter half bathrooms (0 is OK).';
       }
     }
     if (index === 2) {
       if (!form.fullName.trim()) next.fullName = 'Name is required.';
       if (!form.email.trim() || !isEmail(form.email)) next.email = 'Valid email is required.';
-      if (!form.phone.trim() || form.phone.trim().length < 7) next.phone = 'Phone is required.';
+      const phoneDigits = form.phone.replace(/\D/g, '');
+      if (!form.phone.trim()) {
+        next.phone = 'Phone is required.';
+      } else if (phoneDigits.length < 7) {
+        next.phone = 'Enter a valid phone number.';
+      }
       if (!form.street.trim()) next.street = 'Street address is required.';
       if (!form.city.trim()) next.city = 'City is required.';
       if (!form.state.trim()) next.state = 'State is required.';
       if (!form.zip.trim() || form.zip.trim().length < 5) next.zip = 'Valid ZIP is required.';
+      if (form.preferredDate && form.preferredDate < todayIsoLocal()) {
+        next.preferredDate = 'Preferred date cannot be in the past.';
+      }
     }
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -531,7 +632,7 @@ export function PricingCalculator() {
                   <button
                     key={s.id}
                     type="button"
-                    onClick={() => set('service', s.id)}
+                    onClick={() => selectService(s.id)}
                     className={cn(
                       'flex min-h-16 items-start gap-3 rounded-xl border px-3 py-3 text-left transition-all',
                       selected
@@ -567,15 +668,19 @@ export function PricingCalculator() {
                     id="sqft"
                     type="number"
                     min={1}
+                    step={1}
                     inputMode="numeric"
                     className="h-11 pl-10"
                     value={form.squareFeet}
-                    onChange={(e) => set('squareFeet', e.target.value)}
+                    onChange={(e) => setNonNeg('squareFeet', e.target.value)}
                     placeholder="e.g. 1200"
                     aria-invalid={errors.squareFeet ? true : undefined}
                   />
                 </div>
                 {errors.squareFeet ? <p className="text-xs text-destructive">{errors.squareFeet}</p> : null}
+                <p className="text-xs text-muted-foreground">
+                  Required to show a live estimate. Estimates start from the first 600 sq. ft. included in the base.
+                </p>
               </div>
 
               <div className="grid gap-2">
@@ -608,9 +713,10 @@ export function PricingCalculator() {
                   id="fullBaths"
                   type="number"
                   min={0}
+                  step={1}
                   className="h-11"
                   value={form.fullBaths}
-                  onChange={(e) => set('fullBaths', e.target.value)}
+                  onChange={(e) => setNonNeg('fullBaths', e.target.value)}
                   aria-invalid={errors.fullBaths ? true : undefined}
                 />
                 {errors.fullBaths ? <p className="text-xs text-destructive">{errors.fullBaths}</p> : null}
@@ -624,9 +730,10 @@ export function PricingCalculator() {
                   id="halfBaths"
                   type="number"
                   min={0}
+                  step={1}
                   className="h-11"
                   value={form.halfBaths}
-                  onChange={(e) => set('halfBaths', e.target.value)}
+                  onChange={(e) => setNonNeg('halfBaths', e.target.value)}
                   aria-invalid={errors.halfBaths ? true : undefined}
                 />
                 {errors.halfBaths ? <p className="text-xs text-destructive">{errors.halfBaths}</p> : null}
@@ -638,9 +745,10 @@ export function PricingCalculator() {
                   id="offices"
                   type="number"
                   min={0}
+                  step={1}
                   className="h-11"
                   value={form.offices}
-                  onChange={(e) => set('offices', e.target.value)}
+                  onChange={(e) => setNonNeg('offices', e.target.value)}
                 />
               </div>
 
@@ -650,9 +758,10 @@ export function PricingCalculator() {
                   id="living"
                   type="number"
                   min={0}
+                  step={1}
                   className="h-11"
                   value={form.extraLivingRooms}
-                  onChange={(e) => set('extraLivingRooms', e.target.value)}
+                  onChange={(e) => setNonNeg('extraLivingRooms', e.target.value)}
                 />
               </div>
 
@@ -662,9 +771,13 @@ export function PricingCalculator() {
                   id="kitchens"
                   type="number"
                   min={1}
+                  step={1}
                   className="h-11"
                   value={form.kitchens}
-                  onChange={(e) => set('kitchens', e.target.value)}
+                  onChange={(e) => {
+                    const v = nonNegIntString(e.target.value);
+                    set('kitchens', v === '' || v === '0' ? '1' : v);
+                  }}
                 />
               </div>
             </div>
@@ -675,187 +788,248 @@ export function PricingCalculator() {
           <section className="space-y-5 rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-6">
             <div>
               <h2 className="text-lg font-semibold">Details &amp; add-ons</h2>
-              <p className="text-sm text-muted-foreground">Optional extras and visit preferences.</p>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="cadence">Frequency</Label>
-              <select
-                id="cadence"
-                className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
-                value={form.cadence}
-                onChange={(e) => set('cadence', e.target.value as FormState['cadence'])}
-              >
-                <option value="one_time">One time</option>
-                <option value="weekly">Weekly</option>
-                <option value="biweekly">Biweekly</option>
-                <option value="monthly">Monthly</option>
-              </select>
-              <p className="text-xs text-muted-foreground">
-                First Standard visit is full price. Weekly 10% / biweekly 7% / monthly 5% apply from the
-                second completed recurring visit.
+              <p className="text-sm text-muted-foreground">
+                {isQuoteOnlyService
+                  ? 'Tell us anything that helps with your walkthrough or quote request.'
+                  : 'Optional extras and visit preferences.'}
               </p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="oven">Oven interiors ($60 each)</Label>
-                <Input id="oven" type="number" min={0} className="h-11" value={form.oven} onChange={(e) => set('oven', e.target.value)} />
-                {form.service === 'move' ? (
-                  <p className="text-xs text-muted-foreground">1 oven included with Move.</p>
-                ) : null}
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="fridge">Fridge interiors ($45 each)</Label>
-                <Input
-                  id="fridge"
-                  type="number"
-                  min={0}
-                  className="h-11"
-                  value={form.fridge}
-                  onChange={(e) => set('fridge', e.target.value)}
-                />
-                {form.service === 'move' ? (
-                  <p className="text-xs text-muted-foreground">1 fridge included with Move.</p>
-                ) : null}
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="cabinets">Cabinet doors/drawers</Label>
-                <Input
-                  id="cabinets"
-                  type="number"
-                  min={0}
-                  className="h-11"
-                  value={form.cabinets}
-                  onChange={(e) => set('cabinets', e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  $60 up to 20; then $3 each. Included with Move.
-                </p>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="windows">Interior window panes ($8, $40 min)</Label>
-                <Input
-                  id="windows"
-                  type="number"
-                  min={0}
-                  className="h-11"
-                  value={form.interiorWindows}
-                  onChange={(e) => set('interiorWindows', e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="tracks">Window tracks ($5 each)</Label>
-                <Input
-                  id="tracks"
-                  type="number"
-                  min={0}
-                  className="h-11"
-                  value={form.windowTracks}
-                  onChange={(e) => set('windowTracks', e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="blinds">Blinds hand-wipe ($8 each)</Label>
-                <Input
-                  id="blinds"
-                  type="number"
-                  min={0}
-                  className="h-11"
-                  value={form.blinds}
-                  onChange={(e) => set('blinds', e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="linens">
-                  {form.service === 'airbnb' ? 'Bed changes (2 included)' : 'Linen / bed changes ($12)'}
-                </Label>
-                <Input
-                  id="linens"
-                  type="number"
-                  min={0}
-                  max={form.service === 'airbnb' ? 6 : undefined}
-                  className="h-11"
-                  value={form.linenChanges}
-                  onChange={(e) => set('linenChanges', e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="laundry">Laundry loads ($30, max 2)</Label>
-                <Input
-                  id="laundry"
-                  type="number"
-                  min={0}
-                  max={2}
-                  className="h-11"
-                  value={form.laundry}
-                  onChange={(e) => set('laundry', e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="dishes">Dish blocks ($25 / 15 min, max 2)</Label>
-                <Input
-                  id="dishes"
-                  type="number"
-                  min={0}
-                  max={2}
-                  className="h-11"
-                  value={form.dishes}
-                  onChange={(e) => set('dishes', e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="garage">Garage sweep ($40 / bay)</Label>
-                <Input
-                  id="garage"
-                  type="number"
-                  min={0}
-                  className="h-11"
-                  value={form.garage}
-                  onChange={(e) => set('garage', e.target.value)}
-                />
-              </div>
-            </div>
+            {isQuoteOnlyService ? (
+              <p className="rounded-xl bg-muted/50 p-3 text-sm text-muted-foreground">
+                {form.service === 'commercial'
+                  ? 'Commercial cleaning requires an onsite walkthrough. Residential add-ons and recurring discounts do not apply.'
+                  : 'Post-construction / builder work requires a walkthrough and written quote. Residential add-ons do not apply.'}
+              </p>
+            ) : (
+              <>
+                {form.service === 'standard' ? (
+                  <div className="grid gap-2">
+                    <Label htmlFor="cadence">Frequency</Label>
+                    <select
+                      id="cadence"
+                      className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      value={form.cadence}
+                      onChange={(e) => set('cadence', e.target.value as FormState['cadence'])}
+                    >
+                      <option value="one_time">One time</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="biweekly">Biweekly</option>
+                      <option value="monthly">Monthly</option>
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      First Standard visit is full price. Weekly 10% / biweekly 7% / monthly 5% apply from
+                      the second completed recurring visit.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {form.service === 'deep'
+                      ? 'Deep cleaning is priced as a one-time visit (no recurring discount).'
+                      : form.service === 'move'
+                        ? 'Move-in / Move-out is priced as a one-time visit.'
+                        : 'Airbnb turnover is priced per visit (no automatic recurring discount).'}
+                  </p>
+                )}
 
-            <div className="grid gap-3 rounded-xl bg-muted/40 p-3">
-              {form.service === 'deep' || form.service === 'move' ? (
-                <p className="text-sm text-muted-foreground">
-                  Hand-wiped baseboards: <span className="font-medium text-foreground">Included</span>
-                </p>
-              ) : (
-                <label className="flex items-center gap-3 text-sm">
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-[var(--primary)]"
-                    checked={form.baseboards}
-                    onChange={(e) => set('baseboards', e.target.checked)}
-                  />
-                  Hand-wiped baseboards ($40 per started 1,000 sq. ft.)
-                </label>
-              )}
-              {(
-                [
-                  ['petHairNeeded', 'Extra pet-hair work ($35)', form.petHairNeeded],
-                  ['rushRequested', 'Rush request ($50, pending confirmation)', form.rushRequested],
-                  ['highWorkRequested', 'High fans / elevated surfaces (quote review)', form.highWorkRequested],
-                  ['severeOrUnknownCondition', 'Severe or unknown condition (quote review)', form.severeOrUnknownCondition],
-                ] as const
-              ).map(([key, label, checked]) => (
-                <label key={key} className="flex items-center gap-3 text-sm">
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-[var(--primary)]"
-                    checked={checked}
-                    onChange={(e) => set(key, e.target.checked)}
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label htmlFor="oven">Oven interiors ($60 each)</Label>
+                    <Input
+                      id="oven"
+                      type="number"
+                      min={0}
+                      step={1}
+                      className="h-11"
+                      value={form.oven}
+                      onChange={(e) => setNonNeg('oven', e.target.value)}
+                    />
+                    {form.service === 'move' ? (
+                      <p className="text-xs text-muted-foreground">1 oven included with Move.</p>
+                    ) : null}
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="fridge">Fridge interiors ($45 each)</Label>
+                    <Input
+                      id="fridge"
+                      type="number"
+                      min={0}
+                      step={1}
+                      className="h-11"
+                      value={form.fridge}
+                      onChange={(e) => setNonNeg('fridge', e.target.value)}
+                    />
+                    {form.service === 'move' ? (
+                      <p className="text-xs text-muted-foreground">1 fridge included with Move.</p>
+                    ) : null}
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="cabinets">Cabinet doors/drawers</Label>
+                    <Input
+                      id="cabinets"
+                      type="number"
+                      min={0}
+                      step={1}
+                      className="h-11"
+                      value={form.cabinets}
+                      onChange={(e) => setNonNeg('cabinets', e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      $60 up to 20; then $3 each. Included with Move.
+                    </p>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="windows">Interior window panes ($8, $40 min)</Label>
+                    <Input
+                      id="windows"
+                      type="number"
+                      min={0}
+                      step={1}
+                      className="h-11"
+                      value={form.interiorWindows}
+                      onChange={(e) => setNonNeg('interiorWindows', e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="tracks">Window tracks ($5 each)</Label>
+                    <Input
+                      id="tracks"
+                      type="number"
+                      min={0}
+                      step={1}
+                      className="h-11"
+                      value={form.windowTracks}
+                      onChange={(e) => setNonNeg('windowTracks', e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="blinds">Blinds hand-wipe ($8 each)</Label>
+                    <Input
+                      id="blinds"
+                      type="number"
+                      min={0}
+                      step={1}
+                      className="h-11"
+                      value={form.blinds}
+                      onChange={(e) => setNonNeg('blinds', e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="linens">
+                      {form.service === 'airbnb'
+                        ? 'Bed changes (2 included)'
+                        : 'Linen / bed changes ($12)'}
+                    </Label>
+                    <Input
+                      id="linens"
+                      type="number"
+                      min={0}
+                      max={form.service === 'airbnb' ? 6 : undefined}
+                      step={1}
+                      className="h-11"
+                      value={form.linenChanges}
+                      onChange={(e) => setNonNeg('linenChanges', e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="laundry">Laundry loads ($30, max 2)</Label>
+                    <Input
+                      id="laundry"
+                      type="number"
+                      min={0}
+                      max={2}
+                      step={1}
+                      className="h-11"
+                      value={form.laundry}
+                      onChange={(e) => setNonNeg('laundry', e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="dishes">Dish blocks ($25 / 15 min, max 2)</Label>
+                    <Input
+                      id="dishes"
+                      type="number"
+                      min={0}
+                      max={2}
+                      step={1}
+                      className="h-11"
+                      value={form.dishes}
+                      onChange={(e) => setNonNeg('dishes', e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="garage">Garage sweep ($40 / bay)</Label>
+                    <Input
+                      id="garage"
+                      type="number"
+                      min={0}
+                      step={1}
+                      className="h-11"
+                      value={form.garage}
+                      onChange={(e) => setNonNeg('garage', e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-3 rounded-xl bg-muted/40 p-3">
+                  {form.service === 'deep' || form.service === 'move' ? (
+                    <p className="text-sm text-muted-foreground">
+                      Hand-wiped baseboards:{' '}
+                      <span className="font-medium text-foreground">Included</span>
+                    </p>
+                  ) : (
+                    <label className="flex items-center gap-3 text-sm">
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-[var(--primary)]"
+                        checked={form.baseboards}
+                        onChange={(e) => set('baseboards', e.target.checked)}
+                      />
+                      Hand-wiped baseboards ($40 per started 1,000 sq. ft.)
+                    </label>
+                  )}
+                  {(
+                    [
+                      ['petHairNeeded', 'Extra pet-hair work ($35)', form.petHairNeeded],
+                      [
+                        'rushRequested',
+                        'Rush request ($50, pending confirmation)',
+                        form.rushRequested,
+                      ],
+                      [
+                        'highWorkRequested',
+                        'High fans / elevated surfaces (quote review)',
+                        form.highWorkRequested,
+                      ],
+                      [
+                        'severeOrUnknownCondition',
+                        'Severe or unknown condition (quote review)',
+                        form.severeOrUnknownCondition,
+                      ],
+                    ] as const
+                  ).map(([key, label, checked]) => (
+                    <label key={key} className="flex items-center gap-3 text-sm">
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-[var(--primary)]"
+                        checked={checked}
+                        onChange={(e) => set(key, e.target.checked)}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
 
             <div className="grid gap-2">
               <Label htmlFor="notes">Notes (optional)</Label>
-              <Textarea id="notes" rows={3} value={form.notes} onChange={(e) => set('notes', e.target.value)} />
+              <Textarea
+                id="notes"
+                rows={3}
+                value={form.notes}
+                onChange={(e) => set('notes', e.target.value)}
+              />
             </div>
           </section>
         )}
@@ -986,10 +1160,19 @@ export function PricingCalculator() {
                 <Input
                   id="date"
                   type="date"
-                  className="h-11"
+                  min={todayIsoLocal()}
+                  className="h-11 max-w-full"
                   value={form.preferredDate}
                   onChange={(e) => set('preferredDate', e.target.value)}
+                  aria-invalid={errors.preferredDate ? true : undefined}
                 />
+                {errors.preferredDate ? (
+                  <p className="text-xs text-destructive">{errors.preferredDate}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Choose today or a future date (you can type YYYY-MM-DD).
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1052,23 +1235,27 @@ export function PricingCalculator() {
               <p className="mt-1 text-sm text-zinc-600">Price updates with your selections</p>
             </div>
 
-            {/* 1) Estimate cost total first */}
+            {/* 1) Estimate cost total first — never show a stale total while recalculating */}
             <div className="rounded-sm border border-amber-900/10 bg-white/80 px-3 py-4 text-center">
-              {estimating && !estimate ? (
-                <div className="flex items-center justify-center gap-2 text-sm text-zinc-600">
-                  <LoaderCircle className="size-4 animate-spin text-primary" />
-                  Calculating…
+              {estimating || (!hasSqft && !isQuoteOnlyService) ? (
+                <div className="flex flex-col items-center justify-center gap-2 text-sm text-zinc-600">
+                  {estimating ? (
+                    <>
+                      <LoaderCircle className="size-4 animate-spin text-primary" />
+                      Calculating…
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-serif text-3xl font-semibold tracking-tight text-zinc-400">—</p>
+                      <p>Enter square footage to see your estimate.</p>
+                    </>
+                  )}
                 </div>
               ) : estimate?.status === 'priced' ? (
                 <>
-                  <div className="flex items-center justify-center gap-2">
-                    {estimating ? (
-                      <LoaderCircle className="size-4 animate-spin text-primary" />
-                    ) : null}
-                    <p className="font-serif text-4xl font-semibold tracking-tight text-primary">
-                      {formatUsdFromCents(estimate.totalCents)}
-                    </p>
-                  </div>
+                  <p className="font-serif text-4xl font-semibold tracking-tight text-primary">
+                    {formatUsdFromCents(estimate.totalCents)}
+                  </p>
                   <p className="mt-1 text-sm text-zinc-600">
                     Est. total incl. tax
                     {estimate.taxRateBps != null
@@ -1111,17 +1298,13 @@ export function PricingCalculator() {
               <p className="mt-1 text-sm leading-relaxed text-zinc-700">
                 No payment online — submit a request and we confirm the final price with you.
               </p>
-              {estimateBody._provisionalSqft ? (
-                <p className="mt-2 text-xs text-amber-800/90">
-                  Size uses 600 sq. ft. until you enter exact square footage.
-                </p>
-              ) : null}
               {form.cadence !== 'one_time' && form.service === 'standard' ? (
                 <p className="mt-2 text-xs text-zinc-500">
-                  Showing first-visit price. {form.cadence} discount applies from visit 2.
+                  Showing first-visit price. {cadenceDisplay(form.cadence)} discount applies from visit
+                  2.
                 </p>
               ) : null}
-              {estimate?.reasons?.length ? (
+              {!estimating && estimate?.reasons?.length ? (
                 <ul className="mt-2 space-y-1 text-xs text-amber-900/80">
                   {estimate.reasons.map((reason) => (
                     <li key={reason}>• {reason}</li>
@@ -1137,23 +1320,23 @@ export function PricingCalculator() {
                   {selectionDetails.map((row) => (
                     <div key={row.label} className="flex justify-between gap-3">
                       <dt className="shrink-0 text-zinc-500">{row.label}</dt>
-                      <dd className="text-right font-medium text-zinc-800">{row.value}</dd>
+                      <dd className="text-right font-medium break-words text-zinc-800">{row.value}</dd>
                     </div>
                   ))}
                 </dl>
               </div>
             </div>
 
-            {estimate?.status === 'priced' && estimate.lines.length > 0 ? (
+            {!estimating && estimate?.status === 'priced' && estimate.lines.length > 0 ? (
               <div className="rounded-sm border border-amber-900/10 bg-white/60 px-3 py-2 text-sm">
                 <p className="font-medium text-zinc-800">Itemized breakdown</p>
                 <ul className="mt-2 max-h-52 space-y-1.5 overflow-auto text-zinc-600">
                   {estimate.lines.map((line) => (
                     <li
                       key={line.id}
-                      className="flex justify-between gap-3 border-b border-amber-900/10 pb-1.5 last:border-0"
+                      className="flex items-start justify-between gap-3 border-b border-amber-900/10 pb-1.5 last:border-0"
                     >
-                      <span className="min-w-0">{line.label}</span>
+                      <span className="min-w-0 flex-1 break-words">{line.label}</span>
                       <span className="shrink-0 font-medium text-zinc-800">
                         {formatUsdFromCents(line.amountCents)}
                       </span>
@@ -1162,20 +1345,11 @@ export function PricingCalculator() {
                 </ul>
               </div>
             ) : null}
-
-            {estimate?.status === 'quote_required' &&
-            estimate.commercialReferenceCents != null &&
-            form.service === 'commercial' ? (
-              <p className="text-xs text-zinc-500">
-                Internal starting reference:{' '}
-                {formatUsdFromCents(estimate.commercialReferenceCents)} before tax (not a quote).
-              </p>
-            ) : null}
           </div>
         </div>
 
         {/* Mobile sticky total — flat, no shadow */}
-        {estimate?.status === 'priced' ? (
+        {!estimating && estimate?.status === 'priced' ? (
           <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-[#f7f1e3] p-3 lg:hidden">
             <div className="mx-auto flex max-w-lg items-center justify-between gap-3">
               <div>

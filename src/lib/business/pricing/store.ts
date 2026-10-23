@@ -13,6 +13,14 @@ function parseSettings(value: unknown): PricingSettings {
     ...DEFAULT_PRICING_SETTINGS,
     ...raw,
     schemaVersion: 1,
+    rushFeeCents:
+      typeof raw.rushFeeCents === 'number' && raw.rushFeeCents >= 0
+        ? raw.rushFeeCents
+        : DEFAULT_PRICING_SETTINGS.rushFeeCents,
+    petHairCents:
+      typeof raw.petHairCents === 'number' && raw.petHairCents >= 0
+        ? raw.petHairCents
+        : DEFAULT_PRICING_SETTINGS.petHairCents,
     services: {
       ...DEFAULT_PRICING_SETTINGS.services,
       ...(raw.services ?? {}),
