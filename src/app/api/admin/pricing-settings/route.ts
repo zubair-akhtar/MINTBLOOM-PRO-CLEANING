@@ -54,6 +54,7 @@ export async function GET(request: Request) {
         combinedTaxRateBps: m.combinedTaxRateBps,
       })),
     }),
+    { headers: { 'Cache-Control': 'no-store, max-age=0' } },
   );
 }
 
@@ -76,13 +77,24 @@ export async function PUT(request: Request) {
     );
   }
 
+  const incoming = parsed.data.settings as Partial<PricingSettings>;
+  const incomingServices = (incoming.services ?? {}) as Partial<PricingSettings['services']>;
   const merged: PricingSettings = {
     ...DEFAULT_PRICING_SETTINGS,
-    ...(parsed.data.settings as Partial<PricingSettings>),
+    ...incoming,
     schemaVersion: 1,
     services: {
-      ...DEFAULT_PRICING_SETTINGS.services,
-      ...((parsed.data.settings as Partial<PricingSettings>).services ?? {}),
+      standard: {
+        ...DEFAULT_PRICING_SETTINGS.services.standard,
+        ...incomingServices.standard,
+      },
+      deep: { ...DEFAULT_PRICING_SETTINGS.services.deep, ...incomingServices.deep },
+      move: { ...DEFAULT_PRICING_SETTINGS.services.move, ...incomingServices.move },
+      airbnb: { ...DEFAULT_PRICING_SETTINGS.services.airbnb, ...incomingServices.airbnb },
+    },
+    recurringDiscounts: {
+      ...DEFAULT_PRICING_SETTINGS.recurringDiscounts,
+      ...(incoming.recurringDiscounts ?? {}),
     },
   };
 

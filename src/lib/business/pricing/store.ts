@@ -9,6 +9,7 @@ import { prisma } from '@/lib/db';
 function parseSettings(value: unknown): PricingSettings {
   // Trust admin-saved JSON shape; merge onto defaults for forward-compat keys.
   const raw = value && typeof value === 'object' ? (value as Partial<PricingSettings>) : {};
+  const rawServices = (raw.services ?? {}) as Partial<PricingSettings['services']>;
   return {
     ...DEFAULT_PRICING_SETTINGS,
     ...raw,
@@ -21,9 +22,12 @@ function parseSettings(value: unknown): PricingSettings {
       typeof raw.petHairCents === 'number' && raw.petHairCents >= 0
         ? raw.petHairCents
         : DEFAULT_PRICING_SETTINGS.petHairCents,
+    // Deep-merge each service row so partial admin saves never wipe sibling rates.
     services: {
-      ...DEFAULT_PRICING_SETTINGS.services,
-      ...(raw.services ?? {}),
+      standard: { ...DEFAULT_PRICING_SETTINGS.services.standard, ...rawServices.standard },
+      deep: { ...DEFAULT_PRICING_SETTINGS.services.deep, ...rawServices.deep },
+      move: { ...DEFAULT_PRICING_SETTINGS.services.move, ...rawServices.move },
+      airbnb: { ...DEFAULT_PRICING_SETTINGS.services.airbnb, ...rawServices.airbnb },
     },
     recurringDiscounts: {
       ...DEFAULT_PRICING_SETTINGS.recurringDiscounts,

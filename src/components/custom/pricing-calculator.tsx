@@ -41,7 +41,7 @@ type ServiceId =
   | 'commercial'
   | 'postConstruction';
 
-const SERVICES: { id: ServiceId; label: string; hint: string; icon: typeof Home }[] = [
+const SERVICE_META: { id: ServiceId; label: string; hint: string; icon: typeof Home }[] = [
   { id: 'standard', label: 'Standard / Basic', hint: 'From $145', icon: Home },
   { id: 'deep', label: 'Deep cleaning', hint: 'From $325', icon: Sparkles },
   { id: 'move', label: 'Move-in / Move-out', hint: 'From $395', icon: Building2 },
@@ -211,6 +211,46 @@ export function PricingCalculator() {
   const [estimating, setEstimating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reference, setReference] = useState<string | null>(null);
+  const [serviceHints, setServiceHints] = useState<Record<string, string>>({});
+  const [rateCardVersion, setRateCardVersion] = useState<number | null>(null);
+
+  // Load active admin rate-card bases so service cards reflect saved prices.
+  useEffect(() => {
+    let active = true;
+    fetch('/api/pricing/rate-card', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then(
+        (payload: {
+          version?: number;
+          services?: Record<string, { baseCents?: number }>;
+        } | null) => {
+          if (!active || !payload?.services) return;
+          if (typeof payload.version === 'number') setRateCardVersion(payload.version);
+          const hints: Record<string, string> = {};
+          for (const [id, row] of Object.entries(payload.services)) {
+            if (typeof row.baseCents === 'number') {
+              hints[id] = `From ${formatUsdFromCents(row.baseCents)}`;
+            }
+          }
+          setServiceHints(hints);
+        },
+      )
+      .catch(() => {
+        /* keep static fallback hints */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const SERVICES = useMemo(
+    () =>
+      SERVICE_META.map((s) => ({
+        ...s,
+        hint: serviceHints[s.id] ?? s.hint,
+      })),
+    [serviceHints],
+  );
 
   const set = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -341,7 +381,7 @@ export function PricingCalculator() {
     }
 
     return rows;
-  }, [form, hasSqft, isQuoteOnlyService]);
+  }, [form, hasSqft, isQuoteOnlyService, SERVICES]);
 
   useEffect(() => {
     if (!hasSqft && !isQuoteOnlyService) {
@@ -357,9 +397,15 @@ export function PricingCalculator() {
         method: 'POST',
         body: JSON.stringify(estimateBody),
         schema: EstimateResponse,
+        cache: 'no-store',
       })
         .then((result) => {
-          if (active) setEstimate(result);
+          if (active) {
+            setEstimate(result);
+            if (typeof result.rateCardVersion === 'number') {
+              setRateCardVersion(result.rateCardVersion);
+            }
+          }
         })
         .catch(() => {
           if (active) setEstimate(null);
@@ -1233,6 +1279,11 @@ export function PricingCalculator() {
             <div className="border-b border-amber-900/10 pb-3 text-center">
               <p className="text-xs font-bold tracking-[0.16em] text-primary uppercase">Your estimate</p>
               <p className="mt-1 text-sm text-zinc-600">Price updates with your selections</p>
+              {rateCardVersion != null || estimate?.rateCardVersion != null ? (
+                <p className="mt-0.5 text-[11px] text-zinc-500">
+                  Rate card v{estimate?.rateCardVersion ?? rateCardVersion}
+                </p>
+              ) : null}
             </div>
 
             {/* 1) Estimate cost total first — never show a stale total while recalculating */}

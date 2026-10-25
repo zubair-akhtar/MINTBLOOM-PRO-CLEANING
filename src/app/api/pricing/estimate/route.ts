@@ -72,7 +72,11 @@ export async function POST(request: Request) {
           : undefined,
     });
 
-    return NextResponse.json(payload);
+    return NextResponse.json(payload, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      },
+    });
   } catch (error) {
     console.error('[pricing/estimate]', error);
     return NextResponse.json({ error: 'estimate_failed' }, { status: 500 });

@@ -37,25 +37,50 @@ export function CalculatorSettings() {
       .finally(() => setLoading(false));
   }, []);
 
+  /** Functional updates so rapid field edits (and base+min dual write) never drop values. */
   function updateService(service: ServiceKey, field: string, dollars: string) {
-    if (!data) return;
-    const services = { ...(data.settings.services as Record<string, Record<string, number>>) };
-    services[service] = {
-      ...services[service],
-      [field]: centsFromDollars(dollars),
-    };
-    setData({
-      ...data,
-      settings: { ...data.settings, services },
+    const cents = centsFromDollars(dollars);
+    setData((prev) => {
+      if (!prev) return prev;
+      const services = { ...(prev.settings.services as Record<string, Record<string, number>>) };
+      services[service] = {
+        ...services[service],
+        [field]: cents,
+      };
+      return {
+        ...prev,
+        settings: { ...prev.settings, services },
+      };
+    });
+  }
+
+  function updateServiceBaseAndMinimum(service: ServiceKey, dollars: string) {
+    const cents = centsFromDollars(dollars);
+    setData((prev) => {
+      if (!prev) return prev;
+      const services = { ...(prev.settings.services as Record<string, Record<string, number>>) };
+      services[service] = {
+        ...services[service],
+        baseCents: cents,
+        minimumCents: cents,
+      };
+      return {
+        ...prev,
+        settings: { ...prev.settings, services },
+      };
     });
   }
 
   function updateSettingNumber(key: string, dollarsOrNumber: string, asCents: boolean) {
-    if (!data) return;
-    const value = asCents ? centsFromDollars(dollarsOrNumber) : Number.parseInt(dollarsOrNumber, 10);
-    setData({
-      ...data,
-      settings: { ...data.settings, [key]: Number.isFinite(value) ? value : 0 },
+    const value = asCents
+      ? centsFromDollars(dollarsOrNumber)
+      : Number.parseInt(dollarsOrNumber, 10);
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        settings: { ...prev.settings, [key]: Number.isFinite(value) ? value : 0 },
+      };
     });
   }
 
@@ -63,10 +88,12 @@ export function CalculatorSettings() {
     id: string,
     patch: Partial<{ combinedTaxRateBps: number | null; pricingEnabled: boolean; isActive: boolean }>,
   ) {
-    if (!data) return;
-    setData({
-      ...data,
-      markets: data.markets.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        markets: prev.markets.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+      };
     });
   }
 
@@ -74,12 +101,23 @@ export function CalculatorSettings() {
     if (!data) return;
     setSaving(true);
     try {
+      // Read latest state via functional pattern: use current `data` after flush.
+      // Re-read from a short tick so any pending setState from the last keystroke is applied.
+      await new Promise((r) => setTimeout(r, 0));
+      const latest = await new Promise<SettingsPayload | null>((resolve) => {
+        setData((prev) => {
+          resolve(prev);
+          return prev;
+        });
+      });
+      if (!latest) throw new Error('no_data');
+
       const next = await apiFetch('/api/admin/pricing-settings', {
         method: 'PUT',
         body: JSON.stringify({
-          label: data.label,
-          settings: data.settings,
-          markets: data.markets.map((m) => ({
+          label: latest.label,
+          settings: latest.settings,
+          markets: latest.markets.map((m) => ({
             id: m.id,
             combinedTaxRateBps: m.combinedTaxRateBps,
             pricingEnabled: m.pricingEnabled,
@@ -89,7 +127,9 @@ export function CalculatorSettings() {
         schema: AdminPricingSettingsResponse,
       });
       setData(next);
-      toast.success(`Saved pricing version ${next.version}. New estimates use these rates.`);
+      toast.success(
+        `Saved pricing version ${next.version}. Refresh /book — new estimates use these rates.`,
+      );
     } catch {
       toast.error('Could not save pricing settings.');
     } finally {
@@ -113,7 +153,7 @@ export function CalculatorSettings() {
         <h1 className="text-3xl font-semibold tracking-normal">Calculator settings</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Active version <strong>v{data.version}</strong> — {data.label}. Changes create a new
-          version and apply only to new estimates.
+          version and apply immediately to new /book estimates (hard-refresh the booking page).
         </p>
       </div>
 
@@ -138,10 +178,7 @@ export function CalculatorSettings() {
                     <Input
                       className="h-8 w-24"
                       value={dollarsFromCents(services[key]?.baseCents)}
-                      onChange={(e) => {
-                        updateService(key, 'baseCents', e.target.value);
-                        updateService(key, 'minimumCents', e.target.value);
-                      }}
+                      onChange={(e) => updateServiceBaseAndMinimum(key, e.target.value)}
                     />
                   </td>
                   <td className="py-2 pr-2">
