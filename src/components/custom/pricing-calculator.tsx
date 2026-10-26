@@ -42,13 +42,18 @@ type ServiceId =
   | 'postConstruction';
 
 const SERVICE_META: { id: ServiceId; label: string; hint: string; icon: typeof Home }[] = [
-  { id: 'standard', label: 'Standard / Basic', hint: 'From $145', icon: Home },
-  { id: 'deep', label: 'Deep cleaning', hint: 'From $325', icon: Sparkles },
-  { id: 'move', label: 'Move-in / Move-out', hint: 'From $395', icon: Building2 },
-  { id: 'airbnb', label: 'Airbnb turnover', hint: 'From $210', icon: CalendarDays },
+  { id: 'standard', label: 'Standard / Basic', hint: '', icon: Home },
+  { id: 'deep', label: 'Deep cleaning', hint: '', icon: Sparkles },
+  { id: 'move', label: 'Move-in / Move-out', hint: '', icon: Building2 },
+  { id: 'airbnb', label: 'Airbnb turnover', hint: '', icon: CalendarDays },
   { id: 'commercial', label: 'Commercial', hint: 'Walkthrough', icon: Building2 },
   { id: 'postConstruction', label: 'Post-construction', hint: 'Quote', icon: ClipboardList },
 ];
+
+export type InitialRateCard = {
+  version: number;
+  serviceHints: Record<string, string>;
+};
 
 const STEPS = [
   { id: 'service', title: 'Property size', short: 'Property size', icon: Ruler },
@@ -203,7 +208,11 @@ function isEmail(value: string): boolean {
 
 type FieldErrors = Partial<Record<keyof FormState | 'root', string>>;
 
-export function PricingCalculator() {
+export function PricingCalculator({
+  initialRateCard = null,
+}: {
+  initialRateCard?: InitialRateCard | null;
+}) {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<FormState>(initial);
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -211,10 +220,15 @@ export function PricingCalculator() {
   const [estimating, setEstimating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reference, setReference] = useState<string | null>(null);
-  const [serviceHints, setServiceHints] = useState<Record<string, string>>({});
-  const [rateCardVersion, setRateCardVersion] = useState<number | null>(null);
+  const [serviceHints, setServiceHints] = useState<Record<string, string>>(
+    () => initialRateCard?.serviceHints ?? {},
+  );
+  const [rateCardVersion, setRateCardVersion] = useState<number | null>(
+    () => initialRateCard?.version ?? null,
+  );
+  const [ratesReady, setRatesReady] = useState(() => Boolean(initialRateCard));
 
-  // Load active admin rate-card bases so service cards reflect saved prices.
+  // Client refresh keeps hints in sync after admin saves (no hardcoded defaults).
   useEffect(() => {
     let active = true;
     fetch('/api/pricing/rate-card', { cache: 'no-store' })
@@ -224,19 +238,27 @@ export function PricingCalculator() {
           version?: number;
           services?: Record<string, { baseCents?: number }>;
         } | null) => {
-          if (!active || !payload?.services) return;
+          if (!active) return;
+          if (!payload?.services) {
+            setRatesReady(true);
+            return;
+          }
           if (typeof payload.version === 'number') setRateCardVersion(payload.version);
-          const hints: Record<string, string> = {};
+          const hints: Record<string, string> = {
+            commercial: 'Walkthrough',
+            postConstruction: 'Quote',
+          };
           for (const [id, row] of Object.entries(payload.services)) {
             if (typeof row.baseCents === 'number') {
               hints[id] = `From ${formatUsdFromCents(row.baseCents)}`;
             }
           }
           setServiceHints(hints);
+          setRatesReady(true);
         },
       )
       .catch(() => {
-        /* keep static fallback hints */
+        if (active) setRatesReady(true);
       });
     return () => {
       active = false;
@@ -245,11 +267,14 @@ export function PricingCalculator() {
 
   const SERVICES = useMemo(
     () =>
-      SERVICE_META.map((s) => ({
-        ...s,
-        hint: serviceHints[s.id] ?? s.hint,
-      })),
-    [serviceHints],
+      SERVICE_META.map((s) => {
+        const hint =
+          serviceHints[s.id] ||
+          s.hint ||
+          (ratesReady ? '' : '…');
+        return { ...s, hint };
+      }),
+    [serviceHints, ratesReady],
   );
 
   const set = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
@@ -696,7 +721,16 @@ export function PricingCalculator() {
                     </span>
                     <span>
                       <span className="block text-sm font-semibold">{s.label}</span>
-                      <span className="text-xs text-muted-foreground">{s.hint}</span>
+                      {s.hint ? (
+                        <span
+                          className={cn(
+                            'text-xs text-muted-foreground',
+                            !ratesReady && !serviceHints[s.id] ? 'animate-pulse' : null,
+                          )}
+                        >
+                          {s.hint}
+                        </span>
+                      ) : null}
                     </span>
                   </button>
                 );
