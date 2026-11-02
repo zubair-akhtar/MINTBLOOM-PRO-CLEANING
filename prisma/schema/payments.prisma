@@ -1,0 +1,109 @@
+// @polsia:user-owned — PayPal Commerce booking payments, coupons, audit logs.
+
+enum PaymentMode {
+  sandbox
+  live
+}
+
+enum CouponAppliesTo {
+  online_only
+  quote_and_online
+}
+
+enum BookingPaymentChannel {
+  quote
+  online
+}
+
+enum BookingPaymentStatus {
+  quote_requested
+  pending_payment
+  paid
+  testing_payment
+  failed
+  cancelled
+}
+
+model PaymentGatewaySettings {
+  id                 String      @id @default("default")
+  mode               PaymentMode @default(sandbox)
+  paypalEnabled      Boolean     @default(false)
+  venmoEnabled       Boolean     @default(false)
+  paypalClientId     String      @default("")
+  paypalClientSecret String      @default("")
+  paypalWebhookId    String      @default("")
+  updatedByUserId    String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+}
+
+model Coupon {
+  id              String          @id @default(cuid())
+  code            String          @unique
+  name            String
+  percentOff      Int?
+  amountOffCents  Int?
+  maxRedemptions  Int?
+  redemptionCount Int             @default(0)
+  startsAt        DateTime?
+  endsAt          DateTime?
+  appliesTo       CouponAppliesTo @default(quote_and_online)
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  orders          BookingPaymentOrder[]
+}
+
+model BookingPaymentOrder {
+  id                String                @id @default(cuid())
+  reference         String                @unique
+  channel           BookingPaymentChannel
+  status            BookingPaymentStatus  @default(pending_payment)
+  fullName          String
+  email             String
+  phone             String
+  addressLine1      String
+  addressLine2      String?
+  city              String
+  state             String
+  zip               String                @default("")
+  preferredDate     DateTime?             @db.Date
+  notes             String                @default("")
+  serviceId         String
+  estimateSnapshot  Json
+  subtotalCents     Int
+  discountCents     Int                   @default(0)
+  taxCents          Int                   @default(0)
+  amountCents       Int
+  couponId          String?
+  coupon            Coupon?               @relation(fields: [couponId], references: [id])
+  couponCode        String?
+  paypalOrderId     String?               @unique
+  paypalCaptureId   String?               @unique
+  paymentMethod     String?
+  idempotencyKey    String                @unique
+  invoiceEmailedAt  DateTime?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  events            PaymentEventLog[]
+
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([email, createdAt])
+}
+
+model PaymentEventLog {
+  id         String              @id @default(cuid())
+  orderId    String?
+  order      BookingPaymentOrder? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  eventType  String
+  httpStatus Int?
+  riskFlag   Boolean             @default(false)
+  message    String              @default("")
+  payload    Json
+  createdAt  DateTime            @default(now())
+
+  @@index([orderId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([riskFlag, createdAt])
+}

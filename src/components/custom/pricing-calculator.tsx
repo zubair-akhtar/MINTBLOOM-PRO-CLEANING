@@ -1,4 +1,4 @@
-// @polsia:user-owned — quote-only Mintbloom residential estimate wizard.
+// @polsia:user-owned — Mintbloom residential estimate wizard with optional PayPal checkout.
 'use client';
 
 import {
@@ -10,6 +10,8 @@ import {
   CalendarDays,
   Check,
   ClipboardList,
+  CreditCard,
+  FileText,
   Home,
   LoaderCircle,
   Pin,
@@ -17,11 +19,18 @@ import {
   Sparkles,
   UserRound,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AddressAutocomplete } from '@/components/custom/address-autocomplete';
+import { PaypalCheckoutButtons } from '@/components/custom/paypal-checkout-buttons';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import { formatUsdFromCents } from '@/lib/business/pricing/money';
+import {
+  bookingPaymentOrderSchema,
+  publicPaymentConfigSchema,
+  validateCouponResultSchema,
+  type PublicPaymentConfig,
+} from '@/lib/contracts/payments';
 import {
   type EstimateInput,
   type EstimateResponse,
@@ -31,7 +40,7 @@ import {
   publicRateCardSchema,
   type publicServiceIds,
 } from '@/lib/contracts/pricing';
-import { submissionResponseSchema } from '@/modules/service-intake/contracts';
+import { z } from 'zod';
 import styles from './pricing-calculator.module.css';
 
 type ServiceId = (typeof publicServiceIds)[number];
@@ -82,6 +91,7 @@ const STEPS = [
   { id: 'property', title: 'Property size', icon: Ruler },
   { id: 'details', title: 'Details & add-ons', icon: ClipboardList },
   { id: 'contact', title: 'Info & address', icon: UserRound },
+  { id: 'checkout', title: 'Book or request', icon: CreditCard },
 ] as const;
 
 const SERVICE_META: { id: ServiceId; label: string; hint?: string; icon: typeof Home }[] = [
@@ -261,6 +271,12 @@ export function PricingCalculator({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [checkoutMode, setCheckoutMode] = useState<'quote' | 'online' | null>(null);
+  const [paymentConfig, setPaymentConfig] = useState<PublicPaymentConfig | null>(null);
+  const [couponCode, setCouponCode] = useState('');
+  const [couponDiscountCents, setCouponDiscountCents] = useState(0);
+  const [couponMessage, setCouponMessage] = useState('');
+  const [bookingNotes, setBookingNotes] = useState('');
   const [reference, setReference] = useState('');
   const attemptId = useRef<string | null>(null);
   const estimateInput = useMemo(() => asEstimateInput(form), [form]);
@@ -288,6 +304,20 @@ export function PricingCalculator({
       })
       .catch(() => {
         if (active && !initialRateCard) setRateCardError(true);
+      });
+    apiFetch('/api/payments/config', { schema: publicPaymentConfigSchema, cache: 'no-store' })
+      .then((config) => {
+        if (active) setPaymentConfig(config);
+      })
+      .catch(() => {
+        if (active)
+          setPaymentConfig({
+            paypalEnabled: false,
+            venmoEnabled: false,
+            mode: 'sandbox',
+            paypalClientId: '',
+            onlinePaymentsAvailable: false,
+          });
       });
     return () => {
       active = false;
@@ -385,6 +415,16 @@ export function PricingCalculator({
       if (form.preferredDate && today && form.preferredDate < today)
         errors.preferredDate = 'Choose today or a future date.';
     }
+    if (step === 3) {
+      if (!checkoutMode) errors.checkoutMode = 'Choose how you want to continue.';
+      if (checkoutMode === 'online') {
+        if (!form.preferredDate) errors.preferredDate = 'Choose a preferred appointment date.';
+        else if (today && form.preferredDate < today)
+          errors.preferredDate = 'Choose today or a future date.';
+        if (!paymentConfig?.onlinePaymentsAvailable)
+          errors.checkoutMode = 'Online payment is temporarily unavailable. Request a quote instead.';
+      }
+    }
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   }
@@ -400,94 +440,156 @@ export function PricingCalculator({
     setStep((current) => Math.max(current - 1, 0));
   }
 
-  async function submitRequest() {
-    if (!validateStep() || !estimateInput || estimateLoading || estimateError) return;
-    setSubmitting(true);
-    setSubmitError('');
-    attemptId.current ??= crypto.randomUUID();
-    const answers = {
-      service: form.service,
-      ...(form.squareFeet === '' ? {} : { square_feet: form.squareFeet }),
-      bedrooms: form.bedrooms === '5plus' ? 5 : form.bedrooms,
-      bedroom_selection: form.bedrooms === '5plus' ? '5+' : String(form.bedrooms),
-      full_baths: form.fullBaths,
-      half_baths: form.halfBaths,
-      kitchens: form.kitchens,
-      cadence: form.cadence ?? '',
-      returning_recurring: form.returningRecurring ? 'yes' : 'no',
-      condition: form.condition,
-      high_work: form.highWork ? 'yes' : 'no',
-      heavy_condition_approved: form.heavyConditionApproved ? 'yes' : 'no',
-      offices: form.offices,
-      extra_rooms: form.extraRooms,
-      oven_cavities: form.ovenCavities,
-      refrigerator_interior_count: form.refrigeratorCount,
-      cabinet_doors: form.cabinetDoors,
-      baseboards: form.baseboards ? 'yes' : 'no',
-      window_panes: form.windowPanes,
-      window_tracks: form.windowTracks,
-      blinds: form.blinds,
-      linen_beds: form.linenBeds,
-      laundry_loads: form.laundryLoads,
-      dish_blocks: form.dishBlocks,
-      garage_bays: form.garageBays,
-      pet_hair: form.petHair ? 'yes' : 'no',
-      rush: form.rush ? 'yes' : 'no',
-      travel_miles: form.travelMiles,
-      full_name: form.fullName.trim(),
+  const pricedSubtotalCents = estimate?.subtotalCents ?? 0;
+  const pricedTaxCents = estimate?.taxCents ?? 0;
+  const pricedTotalBeforeCoupon =
+    estimate?.status === 'priced' && estimate.totalCents != null
+      ? estimate.totalCents
+      : Math.max(0, pricedSubtotalCents + pricedTaxCents);
+  const payableTotalCents = Math.max(0, pricedTotalBeforeCoupon - couponDiscountCents);
+
+  function buildCustomer() {
+    return {
+      fullName: form.fullName.trim(),
       email: form.email.trim(),
       phone: form.phone.trim(),
-      street_address: form.streetAddress.trim(),
-      unit: form.unit.trim(),
+      addressLine1: form.streetAddress.trim(),
+      addressLine2: form.unit.trim() || null,
       city: form.city.trim(),
       state: form.state.trim().toUpperCase(),
       zip: form.zip.trim(),
-      preferred_date: form.preferredDate,
-      notes: form.notes.trim(),
     };
+  }
 
+  function buildEstimateSnapshot() {
+    return {
+      service: form.service,
+      lines: estimate?.lines ?? [],
+      status: estimate?.status ?? 'quote_required',
+      version: estimate?.version ?? rateCard?.version ?? null,
+    };
+  }
+
+  async function applyCoupon() {
+    setCouponMessage('');
+    if (!couponCode.trim()) {
+      setCouponDiscountCents(0);
+      setCouponMessage('Enter a coupon code.');
+      return;
+    }
     try {
-      const result = await apiFetch('/api/service-intake', {
+      const result = await apiFetch('/api/coupons/validate', {
         method: 'POST',
         body: JSON.stringify({
-          formId: 'mintbloom-pricing-v3',
-          formVersion: 1,
-          attemptId: attemptId.current,
-          answers,
+          code: couponCode.trim(),
+          channel: checkoutMode === 'online' ? 'online' : 'quote',
+          subtotalCents: pricedSubtotalCents,
         }),
-        schema: submissionResponseSchema,
+        schema: validateCouponResultSchema,
       });
-      setReference(result.reference);
+      if (!result.valid) {
+        setCouponDiscountCents(0);
+        setCouponMessage(result.error || 'Invalid coupon.');
+        return;
+      }
+      setCouponDiscountCents(result.discountCents ?? 0);
+      setCouponMessage(`Applied ${result.name || result.code}: −${formatUsdFromCents(result.discountCents ?? 0)}`);
+    } catch {
+      setCouponDiscountCents(0);
+      setCouponMessage('Could not validate coupon right now.');
+    }
+  }
+
+  async function submitQuoteRequest() {
+    if (!validateStep()) return;
+    setSubmitting(true);
+    setSubmitError('');
+    attemptId.current ??= crypto.randomUUID();
+    try {
+      const result = await apiFetch('/api/bookings/quote', {
+        method: 'POST',
+        body: JSON.stringify({
+          customer: buildCustomer(),
+          preferredDate: form.preferredDate || null,
+          notes: [form.notes.trim(), bookingNotes.trim()].filter(Boolean).join('\n'),
+          serviceId: form.service,
+          estimateSnapshot: buildEstimateSnapshot(),
+          subtotalCents: pricedSubtotalCents,
+          taxCents: pricedTaxCents,
+          amountCents: payableTotalCents,
+          couponCode: couponDiscountCents > 0 ? couponCode.trim() : null,
+          idempotencyKey: attemptId.current,
+        }),
+        schema: z.object({ ok: z.literal(true), order: bookingPaymentOrderSchema }),
+      });
+      setReference(result.order.reference);
       attemptId.current = null;
     } catch (error) {
-      const failure = error instanceof Error ? error : new Error('Could not send the request.');
-      if (failure.message.endsWith('(400)')) {
-        const body = failure.cause as { errors?: Record<string, string> } | undefined;
-        const keyMap: Record<string, keyof CalculatorForm> = {
-          square_feet: 'squareFeet',
-          full_name: 'fullName',
-          email: 'email',
-          phone: 'phone',
-          street_address: 'streetAddress',
-          preferred_date: 'preferredDate',
-        };
-        const mapped: Record<string, string> = {};
-        for (const [key, message] of Object.entries(body?.errors ?? {})) {
-          const formKey = keyMap[key] ?? key;
-          mapped[formKey] = message;
-        }
-        setFieldErrors(mapped);
-        attemptId.current = null;
-        setSubmitError('Please review the highlighted details and try again.');
-      } else {
-        setSubmitError(
-          'We could not confirm that your request was received. Keep this page open and retry.',
-        );
-      }
+      attemptId.current = null;
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : 'We could not confirm that your request was received. Please retry.',
+      );
     } finally {
       setSubmitting(false);
     }
   }
+
+  const createPaypalOrderId = useCallback(async () => {
+    if (!validateStep()) throw new Error('Please complete the booking details.');
+    attemptId.current ??= crypto.randomUUID();
+    const result = await apiFetch('/api/payments/paypal/create-order', {
+      method: 'POST',
+      body: JSON.stringify({
+        customer: buildCustomer(),
+        preferredDate: form.preferredDate,
+        notes: [form.notes.trim(), bookingNotes.trim()].filter(Boolean).join('\n'),
+        serviceId: form.service,
+        estimateSnapshot: buildEstimateSnapshot(),
+        subtotalCents: pricedSubtotalCents,
+        taxCents: pricedTaxCents,
+        amountCents: payableTotalCents,
+        couponCode: couponDiscountCents > 0 ? couponCode.trim() : null,
+        idempotencyKey: attemptId.current,
+      }),
+      schema: z.object({
+        paypalOrderId: z.string(),
+        order: bookingPaymentOrderSchema,
+      }),
+    });
+    setReference(result.order.reference);
+    return result.paypalOrderId;
+  }, [
+    bookingNotes,
+    couponCode,
+    couponDiscountCents,
+    form,
+    payableTotalCents,
+    pricedSubtotalCents,
+    pricedTaxCents,
+  ]);
+
+  const approvePaypalOrder = useCallback(
+    async (paypalOrderId: string) => {
+      setSubmitting(true);
+      setSubmitError('');
+      try {
+        const result = await apiFetch('/api/payments/paypal/capture-order', {
+          method: 'POST',
+          body: JSON.stringify({ paypalOrderId }),
+          schema: z.object({ ok: z.literal(true), order: bookingPaymentOrderSchema }),
+        });
+        setReference(result.order.reference);
+        window.location.assign(`/book/confirmed?ref=${encodeURIComponent(result.order.reference)}`);
+      } catch (error) {
+        setSubmitError(error instanceof Error ? error.message : 'Payment capture failed.');
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [],
+  );
 
   const displayTotal =
     estimate?.status === 'priced' && estimate.totalCents !== null
@@ -1034,6 +1136,123 @@ export function PricingCalculator({
                 </div>
               ) : null}
 
+              {step === 3 ? (
+                <div className={styles.formBody}>
+                  <p className={styles.panelCopy}>
+                    Choose how you want to continue. You can send a free quote request, or pay
+                    securely online with PayPal{paymentConfig?.venmoEnabled ? ' or Venmo' : ''} to
+                    book.
+                  </p>
+                  <div className={styles.serviceGrid}>
+                    <button
+                      type="button"
+                      className={styles.serviceCard}
+                      data-selected={checkoutMode === 'quote' ? 'true' : 'false'}
+                      onClick={() => setCheckoutMode('quote')}
+                    >
+                      <FileText size={18} aria-hidden="true" />
+                      <span>
+                        <strong>Request a quote</strong>
+                        <em>No payment now — we confirm the final price with you.</em>
+                      </span>
+                      {checkoutMode === 'quote' ? <Check size={16} aria-hidden="true" /> : null}
+                    </button>
+                    {paymentConfig?.onlinePaymentsAvailable ? (
+                      <button
+                        type="button"
+                        className={styles.serviceCard}
+                        data-selected={checkoutMode === 'online' ? 'true' : 'false'}
+                        onClick={() => setCheckoutMode('online')}
+                      >
+                        <CreditCard size={18} aria-hidden="true" />
+                        <span>
+                          <strong>Pay online & book</strong>
+                          <em>Secure PayPal checkout. Book your preferred date now.</em>
+                        </span>
+                        {checkoutMode === 'online' ? <Check size={16} aria-hidden="true" /> : null}
+                      </button>
+                    ) : null}
+                  </div>
+                  {fieldErrors.checkoutMode ? (
+                    <p className={styles.fieldError}>{fieldErrors.checkoutMode}</p>
+                  ) : null}
+
+                  {checkoutMode ? (
+                    <div className={styles.fieldGrid}>
+                      {checkoutMode === 'online' ? (
+                        <TextField
+                          id="book-preferred-date"
+                          label="Preferred appointment date"
+                          type="date"
+                          min={today}
+                          value={form.preferredDate}
+                          required
+                          error={fieldErrors.preferredDate}
+                          onChange={(value) => update('preferredDate', value)}
+                        />
+                      ) : null}
+                      <label className={`${styles.field} ${styles.fullWidth}`} htmlFor="booking-notes">
+                        <span className={styles.fieldLabel}>
+                          Additional booking notes{' '}
+                          <span className={styles.optional}>(optional)</span>
+                        </span>
+                        <textarea
+                          id="booking-notes"
+                          value={bookingNotes}
+                          maxLength={2000}
+                          rows={3}
+                          className={styles.control}
+                          onChange={(event) => setBookingNotes(event.target.value)}
+                        />
+                      </label>
+                      <div className={`${styles.field} ${styles.fullWidth}`}>
+                        <span className={styles.fieldLabel}>Coupon code</span>
+                        <div className={styles.inlineActions}>
+                          <input
+                            className={styles.control}
+                            value={couponCode}
+                            onChange={(event) => setCouponCode(event.target.value.toUpperCase())}
+                            placeholder="OPTIONAL"
+                          />
+                          <Button type="button" variant="outline" onClick={() => void applyCoupon()}>
+                            Apply
+                          </Button>
+                        </div>
+                        {couponMessage ? <span className={styles.fieldHint}>{couponMessage}</span> : null}
+                      </div>
+                      <div className={`${styles.field} ${styles.fullWidth}`}>
+                        <p className={styles.panelCopy}>
+                          Due today:{' '}
+                          <strong>
+                            {estimate?.status === 'priced'
+                              ? formatUsdFromCents(payableTotalCents)
+                              : 'Quote after review'}
+                          </strong>
+                          {couponDiscountCents > 0
+                            ? ` (saved ${formatUsdFromCents(couponDiscountCents)})`
+                            : ''}
+                        </p>
+                      </div>
+                      {checkoutMode === 'online' &&
+                      paymentConfig?.onlinePaymentsAvailable &&
+                      estimate?.status === 'priced' ? (
+                        <div className={`${styles.field} ${styles.fullWidth}`}>
+                          <PaypalCheckoutButtons
+                            clientId={paymentConfig.paypalClientId}
+                            mode={paymentConfig.mode}
+                            venmoEnabled={paymentConfig.venmoEnabled}
+                            disabled={submitting || payableTotalCents <= 0}
+                            onCreateOrder={createPaypalOrderId}
+                            onApprove={approvePaypalOrder}
+                            onError={(message) => setSubmitError(message)}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
               <div className={styles.formFooter}>
                 {step > 0 ? (
                   <Button
@@ -1047,16 +1266,20 @@ export function PricingCalculator({
                 ) : (
                   <span />
                 )}
-                {step < 2 ? (
+                {step < 3 ? (
                   <Button type="button" onClick={nextStep} className={styles.nextButton}>
-                    {step === 0 ? 'Continue to details' : 'Continue to your address'}
+                    {step === 0
+                      ? 'Continue to details'
+                      : step === 1
+                        ? 'Continue to your address'
+                        : 'Continue to booking'}
                     <ArrowRight size={16} aria-hidden="true" />
                   </Button>
-                ) : (
+                ) : checkoutMode === 'quote' ? (
                   <Button
                     type="button"
-                    onClick={() => void submitRequest()}
-                    disabled={submitting || estimateLoading || estimateError || !estimate}
+                    onClick={() => void submitQuoteRequest()}
+                    disabled={submitting || estimateLoading}
                     className={styles.nextButton}
                   >
                     {submitting ? (
@@ -1066,11 +1289,16 @@ export function PricingCalculator({
                       ? 'Sending request…'
                       : form.service === 'commercial'
                         ? 'Request Walkthrough'
-                        : form.service === 'postConstruction' ||
-                            estimate?.status === 'quote_required'
+                        : estimate?.status === 'quote_required'
                           ? 'Request Quote'
-                          : 'Send estimate request'}
+                          : 'Send quote request'}
                   </Button>
+                ) : (
+                  <span className={styles.fieldHint}>
+                    {checkoutMode === 'online'
+                      ? 'Use the secure PayPal button above to finish booking.'
+                      : 'Choose an option to continue.'}
+                  </span>
                 )}
               </div>
             </>
@@ -1098,8 +1326,9 @@ export function PricingCalculator({
           <div className={styles.boardNote}>
             <h3>Note</h3>
             <p>
-              No payment online — submit a request and Mintbloom Pro will confirm the final price
-              with you.
+              {paymentConfig?.onlinePaymentsAvailable
+                ? 'Request a quote for free, or pay securely online with PayPal to book.'
+                : 'Submit a request and Mintbloom Pro will confirm the final price with you.'}
             </p>
             {estimate?.reason ? <p>{estimate.reason}</p> : null}
             {form.service === 'standard' && form.cadence && form.returningRecurring ? (
@@ -1196,10 +1425,25 @@ export function PricingCalculator({
           </div>
           <Button
             type="button"
-            onClick={() => (step < 2 ? nextStep() : void submitRequest())}
-            disabled={step === 2 && (submitting || estimateLoading || estimateError)}
+            onClick={() =>
+              step < 3
+                ? nextStep()
+                : checkoutMode === 'quote'
+                  ? void submitQuoteRequest()
+                  : undefined
+            }
+            disabled={
+              (step === 3 && checkoutMode === 'quote' && (submitting || estimateLoading)) ||
+              (step === 3 && checkoutMode !== 'quote')
+            }
           >
-            {step < 2 ? 'Continue' : submitting ? 'Sending…' : 'Send request'}
+            {step < 3
+              ? 'Continue'
+              : submitting
+                ? 'Sending…'
+                : checkoutMode === 'quote'
+                  ? 'Send request'
+                  : 'Pay above'}
           </Button>
         </output>
       ) : null}

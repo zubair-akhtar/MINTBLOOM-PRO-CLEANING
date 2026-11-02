@@ -406,6 +406,87 @@
   line-height: 1.4;
 }
 
+.inlineActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+}
+
+.checkoutChoiceGrid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .checkoutChoiceGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.choiceCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  text-align: left;
+  padding: 1rem 1.05rem;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--calculator-line) 88%, transparent);
+  background: color-mix(in srgb, var(--calculator-surface) 92%, white);
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.choiceCard:hover {
+  border-color: color-mix(in srgb, var(--calculator-accent) 45%, var(--calculator-line));
+}
+
+.choiceCardActive {
+  border-color: color-mix(in srgb, var(--calculator-accent) 70%, var(--calculator-line));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--calculator-accent) 35%, transparent);
+}
+
+.choiceCardTitle {
+  font-size: 0.98rem;
+  font-weight: 650;
+}
+
+.choiceCardBody {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--calculator-muted);
+}
+
+.payPanel {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 0.35rem;
+}
+
+.trustStrip {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--calculator-line) 80%, transparent);
+  background: color-mix(in srgb, var(--calculator-surface) 96%, #e8f5ef);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--calculator-muted);
+}
+
+.trustStrip strong {
+  color: var(--calculator-ink);
+  font-weight: 650;
+}
+
+.paypalButtonsMount {
+  min-height: 3rem;
+}
+
 .fullWidth {
   grid-column: 1 / -1;
 }

@@ -1,4 +1,4 @@
-// @polsia:user-owned — Stripe success page for the existing booking checkout URL.
+// @polsia:user-owned — PayPal booking return / confirmation page.
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Suspense } from 'react';

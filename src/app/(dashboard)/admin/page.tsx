@@ -24,6 +24,24 @@ export default function AdminPage() {
         >
           Edit calculator rates
         </Link>
+        <Link
+          className="text-sm font-medium text-primary underline underline-offset-4"
+          href="/admin/orders"
+        >
+          Orders and quote payments
+        </Link>
+        <Link
+          className="text-sm font-medium text-primary underline underline-offset-4"
+          href="/admin/coupons"
+        >
+          Coupons
+        </Link>
+        <Link
+          className="text-sm font-medium text-primary underline underline-offset-4"
+          href="/admin/payments"
+        >
+          Payment gateway settings
+        </Link>
       </section>
     </div>
   );

@@ -1,7 +1,14 @@
 // @polsia:user-owned
 'use client';
 
-import { Calculator, ClipboardList, LayoutDashboard } from 'lucide-react';
+import {
+  Calculator,
+  ClipboardList,
+  CreditCard,
+  LayoutDashboard,
+  Receipt,
+  TicketPercent,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -11,6 +18,9 @@ const navItems = [
   { href: '/admin', label: 'Overview', icon: LayoutDashboard },
   { href: '/admin/calculator', label: 'Calculator rates', icon: Calculator },
   { href: '/admin/service-requests', label: 'Service requests', icon: ClipboardList },
+  { href: '/admin/orders', label: 'Orders', icon: Receipt },
+  { href: '/admin/coupons', label: 'Coupons', icon: TicketPercent },
+  { href: '/admin/payments', label: 'Payments', icon: CreditCard },
 ];
 
 export function AdminNav() {

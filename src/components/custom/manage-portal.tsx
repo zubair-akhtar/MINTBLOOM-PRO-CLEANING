@@ -201,8 +201,9 @@ function CancellationCard({
               : 'Billing still needs confirmation'}
           </AlertTitle>
           <AlertDescription>
-            Open the secure hosted billing portal to stop recurring charges. Mintbloom’s app does
-            not accept payment identifiers or refund amounts in the browser.
+            Recurring Stripe billing is no longer used for new bookings. Contact Mintbloom to pause
+            or change an existing subscription — the app does not collect payment identifiers in the
+            browser.
           </AlertDescription>
         </Alert>
         <Button
@@ -210,10 +211,10 @@ function CancellationCard({
           variant="outline"
           className="w-fit gap-2"
           onClick={onOpenBillingPortal}
-          disabled={openingPortal}
+          disabled
         >
           <ExternalLink className="size-4" aria-hidden />
-          {openingPortal ? 'Opening billing portal…' : 'Open billing portal'}
+          Billing portal unavailable
         </Button>
       </CardContent>
     </Card>

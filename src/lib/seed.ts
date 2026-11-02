@@ -39,5 +39,18 @@ export async function seed(): Promise<void> {
     // Reference data is insert-only: deployments must not overwrite market
     // names, active flags, or job locations that an operator has already set.
     await tx.serviceMarket.createMany({ data: markets, skipDuplicates: true });
+    await tx.paymentGatewaySettings.upsert({
+      where: { id: 'default' },
+      create: {
+        id: 'default',
+        mode: 'sandbox',
+        paypalEnabled: false,
+        venmoEnabled: false,
+        paypalClientId: '',
+        paypalClientSecret: '',
+        paypalWebhookId: '',
+      },
+      update: {},
+    });
   });
 }

@@ -1,100 +1,95 @@
-// @polsia:user-owned — confirms the hosted booking checkout before tracking Purchase.
+// @polsia:user-owned — PayPal booking confirmation / status panel.
 'use client';
 
-import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api-client';
-import { trackMetaPixelEvent } from '@/lib/meta-pixel';
-import { checkoutVerificationResultSchema } from '@/lib/stripe-billing/schema';
+import { bookingPaymentOrderSchema } from '@/lib/contracts/payments';
+import { formatUsdFromCents } from '@/lib/business/pricing/money';
+import { z } from 'zod';
 
-type ConfirmationState = 'checking' | 'confirmed' | 'pending' | 'unavailable' | 'invalid';
-
-function trackPurchaseOnce(sessionId: string, amountUsd: number) {
-  const storageKey = `mintbloom-meta-purchase:${sessionId}`;
-  try {
-    if (window.localStorage.getItem(storageKey) === 'sent') return;
-  } catch {
-    trackMetaPixelEvent('Purchase', { value: amountUsd, currency: 'USD' });
-    return;
-  }
-
-  if (trackMetaPixelEvent('Purchase', { value: amountUsd, currency: 'USD' })) {
-    try {
-      window.localStorage.setItem(storageKey, 'sent');
-    } catch {
-      // The event is already queued; a storage failure must not send it twice.
-    }
-  }
-}
+const responseSchema = z.object({ order: bookingPaymentOrderSchema });
 
 export function BookingPaymentConfirmation() {
-  const searchParams = useSearchParams();
-  const sessionId = searchParams.get('session_id');
-  const [state, setState] = useState<ConfirmationState>(sessionId ? 'checking' : 'invalid');
+  const params = useSearchParams();
+  const reference = params.get('ref');
+  const paypalToken = params.get('token');
+  const [message, setMessage] = useState('Checking your booking…');
+  const [status, setStatus] = useState<'loading' | 'ok' | 'pending' | 'error'>('loading');
+  const [total, setTotal] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!sessionId) {
-      setState('invalid');
-      return;
-    }
+    let cancelled = false;
 
-    let active = true;
-    apiFetch(`/api/stripe-billing/verify?session_id=${encodeURIComponent(sessionId)}`, {
-      schema: checkoutVerificationResultSchema,
-    })
-      .then((verification) => {
-        if (!active) return;
-        if (!verification.verified || !verification.payment) {
-          setState('pending');
+    async function run() {
+      try {
+        if (paypalToken) {
+          const captured = await apiFetch('/api/payments/paypal/capture-order', {
+            method: 'POST',
+            body: JSON.stringify({ paypalOrderId: paypalToken }),
+            schema: z.object({ ok: z.literal(true), order: bookingPaymentOrderSchema }),
+          });
+          if (cancelled) return;
+          setTotal(formatUsdFromCents(captured.order.amountCents));
+          setStatus('ok');
+          setMessage(
+            captured.order.status === 'testing_payment'
+              ? 'Sandbox payment received. Mintbloom will follow up with booking details.'
+              : 'Payment confirmed. Mintbloom will follow up with your booking details.',
+          );
           return;
         }
 
-        const paidTotalUsd = verification.payment.gross_amount_usd;
-        if (typeof paidTotalUsd === 'number' && Number.isFinite(paidTotalUsd) && paidTotalUsd > 0) {
-          trackPurchaseOnce(sessionId, paidTotalUsd);
+        if (!reference) {
+          setStatus('error');
+          setMessage('Missing booking reference.');
+          return;
         }
-        setState('confirmed');
-      })
-      .catch(() => {
-        if (active) setState('unavailable');
-      });
 
+        const result = await apiFetch(
+          `/api/payments/order-by-ref?ref=${encodeURIComponent(reference)}`,
+          { schema: responseSchema, cache: 'no-store' },
+        );
+        if (cancelled) return;
+        setTotal(formatUsdFromCents(result.order.amountCents));
+        if (result.order.status === 'paid' || result.order.status === 'testing_payment') {
+          setStatus('ok');
+          setMessage(
+            result.order.status === 'testing_payment'
+              ? 'Sandbox payment recorded. We emailed your invoice.'
+              : 'Payment confirmed. We emailed your invoice.',
+          );
+        } else if (result.order.status === 'quote_requested') {
+          setStatus('ok');
+          setMessage('Quote request received. Mintbloom will confirm your final price.');
+        } else {
+          setStatus('pending');
+          setMessage('Your payment is still settling. Refresh this page in a moment.');
+        }
+      } catch {
+        if (!cancelled) {
+          setStatus('error');
+          setMessage('We could not confirm the booking right now. Refresh to try again.');
+        }
+      }
+    }
+
+    void run();
     return () => {
-      active = false;
+      cancelled = true;
     };
-  }, [sessionId]);
+  }, [paypalToken, reference]);
 
-  if (state === 'checking') {
-    return (
-      <p className="mt-4 text-muted-foreground" aria-live="polite">
-        Checking your payment…
-      </p>
-    );
-  }
-  if (state === 'confirmed') {
-    return (
-      <output className="mt-4 block text-muted-foreground">
-        Your payment is confirmed. Mintbloom will follow up with your booking details.
-      </output>
-    );
-  }
-  if (state === 'pending') {
-    return (
-      <output className="mt-4 block text-muted-foreground">
-        Your payment is not confirmed yet. Refresh this page in a moment to check again.
-      </output>
-    );
-  }
-  if (state === 'invalid') {
-    return (
-      <p className="mt-4 text-muted-foreground" role="alert">
-        This confirmation link is missing its checkout session.
-      </p>
-    );
-  }
   return (
-    <p className="mt-4 text-muted-foreground" role="alert">
-      We could not check the payment right now. Refresh this page to try again.
-    </p>
+    <div className="mt-6 rounded-2xl border border-border bg-card p-6">
+      <p className="text-muted-foreground">{message}</p>
+      {total ? <p className="mt-3 text-2xl font-semibold">{total}</p> : null}
+      {reference ? (
+        <p className="mt-2 text-sm text-muted-foreground">Reference {reference}</p>
+      ) : null}
+      {status === 'pending' ? (
+        <p className="mt-4 text-sm text-muted-foreground">Checking payment status…</p>
+      ) : null}
+    </div>
   );
 }

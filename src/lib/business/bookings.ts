@@ -4,7 +4,6 @@ import 'server-only';
 import type {
   BookingAddOnSelection,
   BookingCheckoutRequest,
-  BookingCreate,
   BookingLine,
   BookingOptionsResponse as BookingOptionsResponseType,
   BookingQuoteRequest,
@@ -12,16 +11,10 @@ import type {
   BookingSummary,
 } from '@/lib/contracts/bookings';
 import {
-  BookingCheckoutRequest as BookingCheckoutRequestSchema,
   BookingOptionsResponse,
   BookingQuoteRequest as BookingQuoteRequestSchema,
 } from '@/lib/contracts/bookings';
 import { prisma } from '@/lib/db';
-import { sendEmail } from '@/lib/email/send';
-import { bookingConfirmationEmail } from '@/lib/email/templates';
-import { env } from '@/lib/env';
-import { createCheckoutSession, verifyCheckoutSession } from '@/lib/stripe-billing/client';
-
 type BedroomCount = 1 | 2 | 3 | 4 | 5;
 type BathroomCount = 1 | 2 | 3;
 type Cadence = BookingQuoteRequest['cadence'] & string;
@@ -788,193 +781,11 @@ export class BookingQuoteRequiredError extends Error {
   }
 }
 
-function jsonArray(values: string[]) {
-  return values;
-}
 
-function checkoutSnapshot(
-  input: BookingCreate,
-  quote: Extract<BookingQuoteResponse, { status: 'priced' }>,
-) {
-  return {
-    idempotencyKey: '',
-    fullName: input.fullName,
-    email: input.email,
-    phone: input.phone,
-    addressLine1: input.addressLine1,
-    addressLine2: input.addressLine2 || null,
-    city: input.city,
-    state: input.state,
-    zip: input.zip,
-    bedrooms: input.bedrooms,
-    bathrooms: input.bathrooms,
-    tier: serviceTier(input.cadence),
-    serviceType: input.serviceType,
-    cadence: input.cadence ?? null,
-    serviceDate: toUtcDate(input.serviceDate),
-    amountCents: quote.summary.totalAmountCents,
-    baseAmountCents: quote.summary.baseAmountCents,
-    travelChargeCents: quote.summary.travelChargeCents,
-    totalAmountCents: quote.summary.totalAmountCents,
-    areaClassification: quote.summary.areaClassification,
-    inclusions: jsonArray(quote.summary.inclusions),
-    exclusions: jsonArray(quote.summary.exclusions),
-    selectedAddOns: quote.summary.selectedAddOns,
-  };
-}
-
-export async function startBookingCheckout(input: BookingCheckoutRequest) {
-  const parsed = BookingCheckoutRequestSchema.parse(input);
-  const quote = calculateBookingQuote(parsed);
-  if (quote.status !== 'priced') throw new BookingQuoteRequiredError(quote);
-
-  const existing = await prisma.bookingCheckoutDraft.findUnique({
-    where: { idempotencyKey: parsed.idempotencyKey },
-  });
-  if (existing?.checkoutUrl && existing.checkoutSessionId) {
-    return { checkoutUrl: existing.checkoutUrl, checkoutSessionId: existing.checkoutSessionId };
-  }
-
-  const snapshot = checkoutSnapshot(parsed, quote);
-  const draft =
-    existing ??
-    (await prisma.bookingCheckoutDraft.create({
-      data: { ...snapshot, idempotencyKey: parsed.idempotencyKey },
-    }));
-
-  const appUrl = env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, '');
-  const checkout = await createCheckoutSession({
-    lineItems: quote.summary.lines
-      .filter((item) => item.amountCents > 0)
-      .map((item) => ({
-        name: item.label,
-        amountUsd: item.amountCents / 100,
-        quantity: 1,
-      })),
-    name: `Mintbloom ${quote.summary.serviceLabel}`,
-    description: [
-      quote.summary.cadenceLabel,
-      `${parsed.bedrooms}-bedroom, ${parsed.bathrooms}-bathroom home`,
-    ]
-      .filter(Boolean)
-      .join(' · '),
-    customerEmail: parsed.email,
-    successUrl: `${appUrl}/book/confirmed?session_id={CHECKOUT_SESSION_ID}`,
-    cancelUrl: `${appUrl}/book`,
-    clientReferenceId: draft.id,
-    billingAddressCollection: 'required',
-    collectPhoneNumber: true,
-    submitType: 'book',
-  });
-
-  await prisma.bookingCheckoutDraft.update({
-    where: { id: draft.id },
-    data: { checkoutSessionId: checkout.stripeSessionId, checkoutUrl: checkout.url },
-  });
-  return { checkoutUrl: checkout.url, checkoutSessionId: checkout.stripeSessionId };
-}
-
-function centsFromUsd(amountUsd: number): number | null {
-  if (!Number.isFinite(amountUsd) || amountUsd <= 0) return null;
-  const cents = Math.round(amountUsd * 100);
-  return Number.isSafeInteger(cents) ? cents : null;
-}
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : [];
-}
-
-function lineArray(value: unknown): BookingLine[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (!item || typeof item !== 'object') return [];
-    const record = item as Record<string, unknown>;
-    if (
-      typeof record.id !== 'string' ||
-      typeof record.label !== 'string' ||
-      typeof record.amountCents !== 'number' ||
-      typeof record.displayAmount !== 'string'
-    ) {
-      return [];
-    }
-    return [
-      {
-        id: record.id,
-        label: record.label,
-        quantity: typeof record.quantity === 'number' ? record.quantity : 1,
-        unitLabel: typeof record.unitLabel === 'string' ? record.unitLabel : 'service',
-        amountCents: record.amountCents,
-        displayAmount: record.displayAmount,
-        pricingStatus:
-          record.pricingStatus === 'quote_required' || record.pricingStatus === 'starting_price'
-            ? record.pricingStatus
-            : 'approved',
-        scope: typeof record.scope === 'string' ? record.scope : null,
-        quoteReason: typeof record.quoteReason === 'string' ? record.quoteReason : null,
-      },
-    ];
-  });
-}
-
-function summaryFromStored(booking: {
-  serviceType: keyof typeof SERVICE_CONTENT;
-  cadence: 'weekly' | 'biweekly' | 'monthly' | null;
-  baseAmountCents: number;
-  travelChargeCents: number;
-  totalAmountCents: number;
-  areaClassification: string;
-  inclusions: unknown;
-  exclusions: unknown;
-  selectedAddOns: unknown;
-}): BookingSummary {
-  const service = SERVICE_CONTENT[booking.serviceType];
-  const area =
-    booking.areaClassification === 'nearby' || booking.areaClassification === 'extended'
-      ? booking.areaClassification
-      : 'core';
-  const addOns = lineArray(booking.selectedAddOns);
-  const travelPricingStatus = area === 'extended' ? 'quote_required' : 'approved';
-  const lines = [
-    line('service', service.label, booking.baseAmountCents, {
-      pricingStatus: booking.baseAmountCents > 0 ? 'approved' : 'quote_required',
-    }),
-    ...addOns,
-    line('travel', 'Round-trip travel', booking.travelChargeCents, {
-      displayAmount:
-        travelPricingStatus === 'quote_required'
-          ? 'Quote required'
-          : booking.travelChargeCents > 0
-            ? formatAmount(booking.travelChargeCents)
-            : '$0.00',
-      pricingStatus: travelPricingStatus,
-    }),
-  ];
-  const pricingStatus = lines.some((item) => item.pricingStatus === 'quote_required')
-    ? 'quote_required'
-    : lines.some((item) => item.pricingStatus === 'starting_price')
-      ? 'starting_price'
-      : 'approved';
-  return {
-    serviceType: booking.serviceType,
-    serviceLabel: service.label,
-    cadence: booking.cadence,
-    cadenceLabel: cadenceLabel(booking.cadence),
-    inclusions: stringArray(booking.inclusions),
-    exclusions: stringArray(booking.exclusions),
-    selectedAddOns: addOns,
-    pricingStatus,
-    baseAmountCents: booking.baseAmountCents,
-    travelChargeCents: booking.travelChargeCents,
-    travelPricingStatus,
-    totalAmountCents: booking.totalAmountCents,
-    baseDisplayAmount:
-      booking.baseAmountCents > 0 ? formatAmount(booking.baseAmountCents) : 'Quote required',
-    travelDisplayAmount: lines.at(-1)?.displayAmount ?? '$0.00',
-    totalDisplayAmount:
-      pricingStatus === 'approved' ? formatAmount(booking.totalAmountCents) : 'Quote required',
-    areaClassification: area,
-    lines,
-  };
+export async function startBookingCheckout(_input: BookingCheckoutRequest) {
+  throw new Error(
+    'Stripe checkout is disabled. Use /book PayPal checkout or request a quote instead.',
+  );
 }
 
 export type BookingConfirmationResult =
@@ -1004,160 +815,13 @@ export type BookingConfirmationResult =
       };
     };
 
-async function drainBookingEmail() {
-  const pending = await prisma.bookingEmailOutbox.findFirst({
-    where: { status: 'queued' },
-    orderBy: { createdAt: 'asc' },
-  });
-  if (!pending) return;
-  const claim = await prisma.bookingEmailOutbox.updateMany({
-    where: { id: pending.id, status: 'queued' },
-    data: { status: 'claimed', claimedAt: new Date(), attempts: { increment: 1 } },
-  });
-  if (claim.count !== 1) return;
-  try {
-    await sendEmail({
-      to: pending.recipient,
-      subject: pending.subject,
-      html: pending.htmlBody,
-      text: pending.textBody,
-    });
-    await prisma.bookingEmailOutbox.update({
-      where: { id: pending.id },
-      data: { status: 'sent', sentAt: new Date(), lastError: null },
-    });
-  } catch (error) {
-    await prisma.bookingEmailOutbox.update({
-      where: { id: pending.id },
-      data: {
-        status: 'queued',
-        lastError: error instanceof Error ? error.message : 'Email send failed',
-      },
-    });
-  }
-}
-
-export async function confirmBookingPayment(input: {
+/** Legacy Stripe session confirm — disabled. PayPal confirmation uses /api/payments/*. */
+export async function confirmBookingPayment(_input: {
   sessionId: string;
 }): Promise<BookingConfirmationResult> {
-  const verification = await verifyCheckoutSession(input);
-  if (!verification.verified || !verification.payment) {
-    return { status: 'pending', message: 'Payment is still settling. We are checking again.' };
-  }
-
-  const draft = await prisma.bookingCheckoutDraft.findUnique({
-    where: { checkoutSessionId: input.sessionId },
-  });
-  if (!draft) {
-    return {
-      status: 'invalid',
-      message: 'We could not match this payment to a Mintbloom booking.',
-    };
-  }
-
-  const paidAmountCents = centsFromUsd(verification.payment.amount_usd);
-  if (paidAmountCents === null || paidAmountCents !== draft.totalAmountCents) {
-    return {
-      status: 'error',
-      code: 'payment_amount_mismatch',
-      message: 'The payment amount did not match this booking. Please contact Mintbloom support.',
-    };
-  }
-
-  const paidAt = verification.payment.paid_at ? new Date(verification.payment.paid_at) : null;
-  const fulfillment = await prisma.$transaction(async (transaction) => {
-    const existing = await transaction.bookingPaymentFulfillment.findUnique({
-      where: { checkoutSessionId: input.sessionId },
-    });
-    if (existing) return existing;
-
-    const booking = await transaction.booking.create({
-      data: {
-        fullName: draft.fullName,
-        email: draft.email,
-        phone: draft.phone,
-        addressLine1: draft.addressLine1,
-        addressLine2: draft.addressLine2,
-        city: draft.city,
-        state: draft.state,
-        zip: draft.zip,
-        bedrooms: draft.bedrooms,
-        bathrooms: draft.bathrooms,
-        tier: draft.tier,
-        serviceType: draft.serviceType,
-        cadence: draft.cadence,
-        serviceDate: draft.serviceDate,
-        quotedAmountCents: draft.totalAmountCents,
-        paymentAmountCents: paidAmountCents,
-        baseAmountCents: draft.baseAmountCents,
-        travelChargeCents: draft.travelChargeCents,
-        totalAmountCents: draft.totalAmountCents,
-        areaClassification: draft.areaClassification,
-        inclusions: stringArray(draft.inclusions),
-        exclusions: stringArray(draft.exclusions),
-        selectedAddOns: lineArray(draft.selectedAddOns),
-        checkoutSessionId: input.sessionId,
-      },
-    });
-    const summary = summaryFromStored(booking);
-    const email = bookingConfirmationEmail({
-      name: draft.fullName,
-      bookingId: booking.id,
-      summary,
-      serviceDate: toDateOnly(draft.serviceDate),
-    });
-    await transaction.bookingEmailOutbox.create({
-      data: {
-        bookingId: booking.id,
-        recipient: draft.email,
-        subject: email.subject,
-        textBody: email.text ?? '',
-        htmlBody: email.html,
-      },
-    });
-    await transaction.bookingCheckoutDraft.update({
-      where: { id: draft.id },
-      data: { status: 'fulfilled' },
-    });
-    return transaction.bookingPaymentFulfillment.create({
-      data: {
-        checkoutSessionId: input.sessionId,
-        bookingId: booking.id,
-        amountCents: paidAmountCents,
-        paidAt,
-      },
-    });
-  });
-
-  await drainBookingEmail();
-  const booking = await prisma.booking.findUnique({ where: { id: fulfillment.bookingId } });
-  if (!booking) {
-    return {
-      status: 'error',
-      code: 'booking_not_found',
-      message: 'We could not load your booking.',
-    };
-  }
   return {
-    status: 'confirmed',
-    booking: {
-      id: booking.id,
-      fullName: booking.fullName,
-      email: booking.email,
-      phone: booking.phone,
-      addressLine1: booking.addressLine1,
-      addressLine2: booking.addressLine2,
-      city: booking.city,
-      state: booking.state,
-      zip: booking.zip,
-      serviceDate: toDateOnly(booking.serviceDate),
-      summary: summaryFromStored(booking),
-    },
-    payment: {
-      amountCents: fulfillment.amountCents,
-      displayAmount: formatAmount(fulfillment.amountCents),
-      customerEmail: verification.payment.customer_email ?? null,
-      paidAt: fulfillment.paidAt?.toISOString() ?? verification.payment.paid_at ?? null,
-    },
+    status: 'error',
+    code: 'stripe_checkout_disabled',
+    message: 'Stripe checkout is disabled. Confirm PayPal bookings from the PayPal return page.',
   };
 }

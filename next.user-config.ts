@@ -42,11 +42,21 @@ export const appCapabilities: AppCapabilities = {
  * e.g. { frameSrc: ['https://js.stripe.com'], connectSrc: ['https://*.supabase.co'] }
  */
 export const cspExtraSources: CspExtraSources = {
-  frameSrc: [],
-  connectSrc: [],
+  frameSrc: [
+    'https://www.paypal.com',
+    'https://www.sandbox.paypal.com',
+    'https://www.paypalobjects.com',
+  ],
+  connectSrc: [
+    'https://www.paypal.com',
+    'https://www.sandbox.paypal.com',
+    'https://api-m.paypal.com',
+    'https://api-m.sandbox.paypal.com',
+    'https://www.paypalobjects.com',
+  ],
   mediaSrc: [],
   fontSrc: [],
-  imgSrc: [],
+  imgSrc: ['https://www.paypalobjects.com'],
 };
 
 /** Package-level Next options (transpilePackages, experimental.optimizePackageImports, …). */
