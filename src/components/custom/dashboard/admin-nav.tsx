@@ -9,8 +9,8 @@ import { cn } from '@/lib/utils';
 // Add every admin feature here; child pages inherit this navigation.
 const navItems = [
   { href: '/admin', label: 'Overview', icon: LayoutDashboard },
+  { href: '/admin/calculator', label: 'Calculator rates', icon: Calculator },
   { href: '/admin/service-requests', label: 'Service requests', icon: ClipboardList },
-  { href: '/admin/calculator', label: 'Calculator', icon: Calculator },
 ];
 
 export function AdminNav() {

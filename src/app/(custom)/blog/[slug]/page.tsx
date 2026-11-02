@@ -27,6 +27,13 @@ export async function generateMetadata({ params }: BlogArticlePageProps): Promis
   return {
     title: post.title,
     description: post.excerpt,
+    keywords: [
+      post.title,
+      ...(post.city
+        ? [`${post.city.split(',')[0]} house cleaning`, `house cleaning in ${post.city}`]
+        : []),
+      'residential cleaning',
+    ],
     alternates: { canonical: `/blog/${post.slug}` },
     openGraph: {
       type: 'article',

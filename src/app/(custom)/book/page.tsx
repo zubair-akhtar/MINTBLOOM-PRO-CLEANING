@@ -7,7 +7,7 @@ import { getActivePricingSettings } from '@/lib/business/pricing/store';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Cleaning estimate | Mintbloom',
+  title: 'Cleaning estimate | Mintbloom Pro',
   description:
     'Get an instant residential cleaning estimate for Lubbock-area homes, or request a quote for larger and commercial jobs.',
   alternates: { canonical: '/book' },
@@ -16,6 +16,7 @@ export const metadata: Metadata = {
 export default async function BookPage() {
   let initialRateCard: {
     version: number;
+    includedSqFt: number;
     serviceHints: Record<string, string>;
   } | null = null;
 
@@ -27,7 +28,7 @@ export default async function BookPage() {
     }
     serviceHints.commercial = 'Walkthrough';
     serviceHints.postConstruction = 'Quote';
-    initialRateCard = { version, serviceHints };
+    initialRateCard = { version, includedSqFt: settings.includedSqFt, serviceHints };
   } catch {
     initialRateCard = null;
   }

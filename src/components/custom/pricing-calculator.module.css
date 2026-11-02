@@ -1,0 +1,955 @@
+/* @polsia:user-owned — quote wizard presentation, aligned with Mintbloom's green identity. */
+.page {
+  --calculator-green: #1d7a4f;
+  --calculator-green-dark: #164b34;
+  --calculator-ink: #18251e;
+  --calculator-muted: #59675f;
+  --calculator-line: #d9e0d8;
+  --calculator-paper: #fffefa;
+  color: var(--calculator-ink);
+}
+
+.intro {
+  max-width: 54rem;
+  margin: 0 auto 2rem;
+  text-align: center;
+}
+
+.eyebrow,
+.boardEyebrow {
+  margin: 0;
+  color: var(--calculator-green);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0.7rem 0 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(2.2rem, 4.4vw, 3.75rem);
+  font-weight: 550;
+  letter-spacing: -0.045em;
+  line-height: 1.04;
+  text-wrap: balance;
+}
+
+.title:focus,
+.panelTitle:focus {
+  outline: none;
+}
+
+.lede {
+  max-width: 42rem;
+  margin: 1rem auto 0;
+  color: var(--calculator-muted);
+  font-size: 1.03rem;
+  line-height: 1.7;
+}
+
+.stepNav {
+  margin: 0 auto 1.25rem;
+  max-width: 66rem;
+  overflow: hidden;
+  border-radius: 0.55rem;
+}
+
+.stepNav ol {
+  display: flex;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: #fff;
+}
+
+.step {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+.stepButton {
+  display: flex;
+  width: 100%;
+  min-height: 4.75rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.28rem;
+  border: 0;
+  background: #e5e7eb;
+  padding: 0.45rem 1rem;
+  color: #525a54;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-align: center;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+  cursor: pointer;
+}
+
+.stepButton:disabled {
+  cursor: not-allowed;
+}
+
+.stepButton:focus-visible {
+  position: relative;
+  z-index: 5;
+  outline: 2px solid var(--calculator-green-dark);
+  outline-offset: -4px;
+}
+
+.stepCurrent {
+  background: var(--calculator-green);
+  color: #fff;
+}
+
+.stepNumber {
+  display: grid;
+  width: 1.8rem;
+  height: 1.8rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: #fff;
+  color: #59615b;
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.stepCurrent .stepNumber {
+  color: var(--calculator-green-dark);
+}
+
+.stepLabel {
+  display: flex;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  overflow: hidden;
+  font-size: 0.72rem;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.stepLabel > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stepIcon {
+  display: none;
+  width: 0.8rem;
+  height: 0.8rem;
+  flex: 0 0 auto;
+}
+
+.layout {
+  display: grid;
+  grid-template-areas: "form summary";
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 21rem);
+  align-items: start;
+  gap: 1.25rem;
+}
+
+.formPanel {
+  grid-area: form;
+  min-width: 0;
+  border: 1px solid var(--calculator-line);
+  border-radius: 1.15rem;
+  background: var(--calculator-paper);
+  padding: clamp(1.1rem, 2.5vw, 2rem);
+}
+
+.panelHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--calculator-line);
+  padding-bottom: 1rem;
+}
+
+.panelTitle {
+  margin: 0.35rem 0 0;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(1.7rem, 2.5vw, 2.2rem);
+  font-weight: 550;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+}
+
+.panelIndex {
+  color: #afbbb2;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 2.3rem;
+  line-height: 1;
+}
+
+.panelCopy {
+  margin: 0;
+  color: var(--calculator-muted);
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+
+.formBody {
+  display: grid;
+  gap: 1.55rem;
+  padding-top: 1.25rem;
+}
+
+.serviceFieldset,
+.addOnFieldset {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.fieldLegend,
+.fieldLabel {
+  display: block;
+  color: var(--calculator-ink);
+  font-size: 0.87rem;
+  font-weight: 700;
+}
+
+.fieldLegend {
+  margin-bottom: 0.7rem;
+}
+
+.serviceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.serviceCard {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  min-width: 0;
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid var(--calculator-line);
+  border-radius: 0.85rem;
+  background: #fff;
+  padding: 0.85rem;
+  color: var(--calculator-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.serviceCard:focus-visible {
+  outline: 2px solid var(--calculator-green);
+  outline-offset: 2px;
+}
+
+.serviceIcon {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  grid-row: span 2;
+  place-items: center;
+  border-radius: 0.55rem;
+  background: #edf0ec;
+  color: var(--calculator-green-dark);
+}
+
+.serviceSelected {
+  border-color: var(--calculator-green);
+  background: #f1f7f1;
+  box-shadow: 0 0 0 2px rgb(29 122 79 / 20%);
+}
+
+.serviceSelected .serviceIcon {
+  background: var(--calculator-green);
+  color: #fff;
+}
+
+.serviceCardTop {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.serviceCardTop strong {
+  min-width: 0;
+}
+
+.serviceCheck {
+  display: grid;
+  width: 1.2rem;
+  height: 1.2rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #c7d0c8;
+  border-radius: 50%;
+  color: #fff;
+}
+
+.serviceSelected .serviceCheck {
+  border-color: var(--calculator-green);
+  background: var(--calculator-green);
+}
+
+.fieldHint {
+  color: var(--calculator-muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.serviceHint {
+  grid-column: 2;
+  color: var(--calculator-green-dark);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem 0.9rem;
+}
+
+.field {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 0.42rem;
+}
+
+.fieldLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  line-height: 1.4;
+}
+
+.fieldIcon {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: 0 0 auto;
+  color: var(--calculator-green);
+}
+
+.requiredMark {
+  color: #b42318;
+}
+
+.optional {
+  color: var(--calculator-muted);
+  font-weight: 450;
+}
+
+.control {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.85rem;
+  border: 1px solid #cbd4cc;
+  border-radius: 0.65rem;
+  background: #fff;
+  padding: 0.68rem 0.75rem;
+  color: var(--calculator-ink);
+  font: inherit;
+  font-size: 0.91rem;
+  line-height: 1.4;
+}
+
+.control:focus-visible {
+  border-color: var(--calculator-green);
+  outline: 2px solid color-mix(in srgb, var(--calculator-green) 22%, transparent);
+  outline-offset: 1px;
+}
+
+.control[aria-invalid="true"] {
+  border-color: #b42318;
+}
+
+.inputWrap {
+  position: relative;
+  display: block;
+}
+
+.withSuffix {
+  padding-right: 3.75rem;
+}
+
+.inputSuffix {
+  position: absolute;
+  top: 50%;
+  right: 0.75rem;
+  color: var(--calculator-muted);
+  font-size: 0.78rem;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.fieldError {
+  color: #a32018;
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.fullWidth {
+  grid-column: 1 / -1;
+}
+
+.addressField {
+  position: relative;
+}
+
+.addressInputWrap {
+  position: relative;
+}
+
+.addressInput {
+  padding-right: 2.8rem;
+  padding-left: 2.45rem;
+}
+
+.addressIcon,
+.addressSpinner {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  width: 1rem;
+  height: 1rem;
+  color: var(--calculator-green);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.addressIcon {
+  left: 0.8rem;
+}
+
+.addressSpinner {
+  right: 0.8rem;
+  animation: address-spin 900ms linear infinite;
+}
+
+.addressSuggestions {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% - 2.1rem);
+  right: 0;
+  left: 0;
+  display: grid;
+  gap: 0.15rem;
+  margin: 0;
+  border: 1px solid var(--calculator-line);
+  border-radius: 0.65rem;
+  background: #fff;
+  padding: 0.35rem;
+  box-shadow: 0 0.7rem 1.8rem rgb(24 37 30 / 14%);
+  list-style: none;
+}
+
+.addressSuggestion {
+  width: 100%;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  padding: 0.65rem;
+  color: var(--calculator-ink);
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.addressSuggestion:hover,
+.addressSuggestion:focus-visible {
+  background: #eff5f0;
+  outline: none;
+}
+
+@keyframes address-spin {
+  to {
+    transform: translateY(-50%) rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .addressSpinner {
+    animation: none;
+  }
+}
+
+.frequencyBlock {
+  display: grid;
+  gap: 0.9rem;
+  border-bottom: 1px solid var(--calculator-line);
+  padding-bottom: 1.25rem;
+}
+
+.toggleGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.toggle {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.65rem;
+  color: var(--calculator-ink);
+  font-size: 0.83rem;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.toggleMark {
+  display: grid;
+  width: 1.2rem;
+  height: 1.2rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #9eaaa0;
+  border-radius: 0.28rem;
+  color: #fff;
+}
+
+.toggle input:checked + .toggleMark {
+  border-color: var(--calculator-green);
+  background: var(--calculator-green);
+}
+
+.toggle input:focus-visible + .toggleMark {
+  outline: 2px solid var(--calculator-green);
+  outline-offset: 2px;
+}
+
+.toggleCopy {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.toggleCopy small {
+  color: var(--calculator-muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.approvalNotice {
+  display: grid;
+  gap: 0.8rem;
+  border-left: 3px solid #ba473e;
+  background: #fbf3ef;
+  padding: 0.85rem 1rem;
+  color: #47251f;
+  font-size: 0.84rem;
+}
+
+.approvalNotice p,
+.includedNote {
+  margin: 0;
+}
+
+.includedNote {
+  margin-top: 0.8rem;
+  color: var(--calculator-muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.formFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-top: 1px solid var(--calculator-line);
+  margin-top: 1.4rem;
+  padding-top: 1rem;
+}
+
+.backButton,
+.nextButton {
+  min-height: 2.85rem;
+  gap: 0.55rem;
+  border-radius: 0.7rem;
+  font-weight: 700;
+}
+
+.nextButton {
+  background: var(--calculator-green);
+  color: #fff;
+}
+
+.nextButton:hover {
+  background: var(--calculator-green-dark);
+}
+
+.formAlert {
+  border: 1px solid #e4b1a8;
+  border-radius: 0.65rem;
+  background: #fff6f4;
+  margin: 1rem 0 0;
+  padding: 0.8rem 0.9rem;
+  color: #7b241a;
+  font-size: 0.84rem;
+}
+
+.noticeBoard {
+  position: sticky;
+  top: 1.25rem;
+  grid-area: summary;
+  min-width: 0;
+  overflow: visible;
+  border: 1px solid #e5d9bd;
+  border-radius: 0.7rem;
+  background: #f7f1e3;
+  padding: 1.25rem 1.2rem 1rem;
+  color: #302b20;
+}
+
+.pin {
+  position: absolute;
+  top: -0.75rem;
+  left: 50%;
+  display: grid;
+  width: 1.8rem;
+  height: 1.8rem;
+  place-items: center;
+  color: #b54137;
+  transform: translateX(-50%) rotate(-14deg);
+}
+
+.pin svg {
+  stroke: #8f2f28;
+}
+
+.boardTotal {
+  border-bottom: 1px dashed #c8bda4;
+  padding: 0.25rem 0 1rem;
+  text-align: center;
+}
+
+.boardEyebrow {
+  color: #596044;
+}
+
+.totalValue {
+  display: block;
+  margin-top: 0.4rem;
+  color: #1c4b34;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(1.75rem, 2.8vw, 2.35rem);
+  font-weight: 650;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.totalContext {
+  margin: 0.5rem 0 0;
+  color: #605945;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.boardNote,
+.boardSelections,
+.boardBreakdown {
+  border-bottom: 1px dashed #c8bda4;
+  padding: 0.9rem 0;
+}
+
+.boardNote h3,
+.boardSelections h3,
+.boardBreakdown h3 {
+  margin: 0;
+  color: #393322;
+  font-size: 0.84rem;
+  font-weight: 750;
+}
+
+.boardNote p {
+  margin: 0.45rem 0 0;
+  color: #625b49;
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
+.boardSectionTitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.boardSectionTitle span {
+  color: #625b49;
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.boardSelections ul,
+.lineItems {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.7rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.boardSelections li,
+.lineItems li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.65rem;
+  font-size: 0.73rem;
+  line-height: 1.4;
+}
+
+.boardSelections li span,
+.lineItems li span {
+  min-width: 0;
+  color: #645d4b;
+}
+
+.boardSelections li strong,
+.lineItems li strong {
+  flex: 0 0 auto;
+  max-width: 56%;
+  color: #302b20;
+  font-size: 0.73rem;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.boardBreakdown {
+  border-bottom: 0;
+  padding-bottom: 0.65rem;
+}
+
+.boardEmpty {
+  margin: 0.6rem 0 0;
+  color: #625b49;
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
+.lineItems em {
+  display: inline-block;
+  margin-left: 0.35rem;
+  border-radius: 999px;
+  background: #e7decb;
+  padding: 0.08rem 0.32rem;
+  color: #544a37;
+  font-size: 0.62rem;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.lineItems li:has([data-total="true"]) {
+  border-top: 1px solid #c8bda4;
+  margin-top: 0.25rem;
+  padding-top: 0.55rem;
+  font-weight: 750;
+}
+
+.boardVersion {
+  margin: 0.25rem 0 0;
+  color: #596044;
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.mobileEstimate {
+  display: none;
+}
+
+.mobileEstimateTotal {
+  display: grid;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.mobileEstimateTotal span {
+  color: #605945;
+  font-size: 0.7rem;
+}
+
+.mobileEstimateTotal strong {
+  color: #1c4b34;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.15rem;
+  line-height: 1.2;
+}
+
+.retryLink {
+  border: 0;
+  background: none;
+  margin-top: 0.55rem;
+  padding: 0;
+  color: #1c4b34;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.confirmation {
+  display: grid;
+  justify-items: start;
+  gap: 0.85rem;
+  padding: 1rem 0;
+}
+
+.confirmationIcon {
+  display: grid;
+  width: 3rem;
+  height: 3rem;
+  place-items: center;
+  border-radius: 50%;
+  background: #e8f1e9;
+  color: var(--calculator-green);
+}
+
+.referenceBox {
+  display: grid;
+  width: 100%;
+  gap: 0.3rem;
+  border: 1px solid var(--calculator-line);
+  border-radius: 0.7rem;
+  background: #f6f8f5;
+  padding: 0.8rem 0.9rem;
+}
+
+.referenceBox strong {
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+}
+
+.referenceBox span {
+  color: var(--calculator-muted);
+  font-size: 0.75rem;
+}
+
+@media (max-width: 58rem) {
+  .layout {
+    grid-template-areas: "form" "summary";
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .noticeBoard {
+    position: relative;
+    top: auto;
+  }
+
+  .mobileEstimate {
+    position: fixed;
+    z-index: 40;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    min-height: 4.25rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-top: 1px solid #dfd2b6;
+    background: #f7f1e3;
+    padding: 0.6rem max(1rem, env(safe-area-inset-right)) max(0.6rem, env(safe-area-inset-bottom))
+      max(1rem, env(safe-area-inset-left));
+  }
+
+  .mobileEstimate > button {
+    min-height: 2.8rem;
+    flex: 0 0 auto;
+  }
+}
+
+@media (max-width: 38rem) {
+  .intro {
+    margin-bottom: 1.4rem;
+    text-align: left;
+  }
+
+  .lede {
+    font-size: 0.92rem;
+  }
+
+  .stepButton {
+    min-height: 3.75rem;
+    gap: 0.2rem;
+    padding: 0.35rem 0.65rem;
+  }
+
+  .stepNumber {
+    width: 1.35rem;
+    height: 1.35rem;
+    font-size: 0.6rem;
+  }
+
+  .stepLabel {
+    font-size: 0.61rem;
+  }
+
+  .serviceGrid,
+  .fieldGrid,
+  .toggleGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .formPanel {
+    padding: 1rem;
+  }
+
+  .formFooter {
+    align-items: stretch;
+  }
+
+  .backButton,
+  .nextButton {
+    min-width: 0;
+    flex: 1 1 50%;
+    justify-content: center;
+    padding-inline: 0.55rem;
+    font-size: 0.8rem;
+  }
+}
+
+@media (min-width: 40rem) {
+  .stepIcon {
+    display: block;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .serviceCard,
+  .stepButton {
+    transition: none;
+  }
+}

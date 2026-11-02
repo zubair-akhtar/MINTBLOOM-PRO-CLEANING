@@ -51,4 +51,6 @@ export const navItems: NavItem[] = [
   { label: 'Contact', href: '/areas#request-area', group: 'footer', order: 1 },
   { label: 'Service areas', href: '/areas', group: 'footer', order: 2 },
   { label: 'Blog', href: '/blog', group: 'footer', order: 3 },
+  { label: 'Terms', href: '/terms', group: 'footer', order: 4 },
+  { label: 'Privacy', href: '/privacy', group: 'footer', order: 5 },
 ];

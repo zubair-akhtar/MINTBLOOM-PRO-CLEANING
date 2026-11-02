@@ -60,12 +60,25 @@ export const intakeAdapters: IntakeAdapters = {
   },
   validateBusiness: async (_form, answers) => {
     const errors: Record<string, string> = {};
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Chicago',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
     if (
       typeof answers.preferred_date === 'string' &&
       answers.preferred_date &&
-      answers.preferred_date < new Date().toISOString().slice(0, 10)
+      answers.preferred_date < today
     )
       errors.preferred_date = 'Choose today or a future date.';
+    if (typeof answers.phone === 'string') {
+      const digits = answers.phone.replace(/\D/g, '');
+      if (digits.length < 10 || digits.length > 15)
+        errors.phone = 'Enter a valid phone number with at least 10 digits.';
+    }
+    if (typeof answers.square_feet === 'number' && answers.square_feet < 0)
+      errors.square_feet = 'Square feet cannot be negative.';
     return errors;
   },
   notify: async (item, signal) => {

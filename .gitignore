@@ -32,6 +32,8 @@ lerna-debug.log*
 *.swp
 *.swo
 .DS_Store
+Thumbs.db
+Desktop.ini
 
 # Testing
 /coverage/
@@ -44,13 +46,20 @@ lerna-debug.log*
 # Vercel
 .vercel
 
-# Polsia upgrade reconcile sidecars (never commit)
+# Polsia local / upgrade sidecars
+.polsia/
 *.polsia-app-old
 
-# Local-only / temp
-_db_dump_preview/
-*.log
-.cursor/
+# Polsia production downloads (keep on disk, never push)
+latest-code/
+latest-code-production-v3/
+latest-code-production-v3 v1.0/
+*.zip
 
-.vercel
-.env*
+# Handoff / upload packs for Polsia chat (local only)
+to-be-upload/
+polsia-parts/
+polsia-parts-small/
+POLSIA-COMPLETE-HANDOFF.txt
+docs/polsia-handoff*
+Mintbloom_Pricing_Calculator_Specification-2.pdf

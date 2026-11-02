@@ -46,7 +46,7 @@ export const faqContent: FaqContent = {
       id: 'flat-rate-pricing',
       question: 'How does pricing work?',
       answer:
-        'Basic Cleaning starts at $185. Other published amounts are starting prices only. We review condition, size, safety, specialty materials, travel, and requested add-ons before confirming final pricing.',
+        'Standard cleaning starts at $145 before market tax. Other prices are estimates only. We review condition, size, safety, specialty materials, travel, and requested add-ons before confirming the final quote.',
     },
     {
       id: 'scheduling',

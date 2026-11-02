@@ -24,65 +24,96 @@ export type BlogPost = {
   body: BlogBodyBlock[];
 };
 
-// This starter record is deliberately labeled as sample content until Mintbloom
-// supplies final editorial copy, author details, and any approved imagery.
 export const blogPosts: BlogPost[] = [
   {
-    slug: 'sample-planning-a-smoother-home-cleaning-visit',
-    title: 'Sample guide: Planning a smoother home cleaning visit',
+    slug: 'lubbock-house-cleaning',
+    title: 'House Cleaning in Lubbock, TX: Scope, Scheduling & Pricing',
     excerpt:
-      'Sample editorial copy for the Mintbloom Pro journal. Replace this starter guide with approved cleaning-market content before publishing it as final advice.',
+      'Looking for house cleaning in Lubbock? Learn what Mintbloom Pro’s residential scope includes, how property details affect an estimate, what the $145 Standard starting rate means before tax, and how to request service.',
     published: true,
-    publishedAt: '2026-10-03',
+    publishedAt: '2026-10-24',
     author: 'Mintbloom Pro',
     city: 'Lubbock, Texas',
     body: [
       {
         id: 'intro',
         type: 'paragraph',
-        text: 'This sample article shows how Mintbloom Pro can share practical, location-aware cleaning guidance without promising a service scope that has not been reviewed. Use it as the editorial starting point for the journal.',
+        text: 'Choosing house cleaning in Lubbock starts with two practical details: the service you need and the ZIP code for the property. Mintbloom Pro’s request form collects those details, along with information about the home and your preferred timing, so the requested scope and location can be reviewed. A request does not confirm availability or an appointment.',
       },
       {
-        id: 'before-you-book',
+        id: 'residential-scope',
         type: 'heading',
-        text: 'Before you book, make the scope easy to understand',
+        text: 'What to expect from residential house cleaning',
         level: 2,
       },
       {
-        id: 'before-you-book-copy',
+        id: 'residential-scope-copy',
         type: 'paragraph',
-        text: 'A clear service request gives a cleaning team a better view of the home, the rooms that matter most, and any details that may change the next step. Note the address, the type of cleaning you want, and any specialty or travel considerations up front.',
+        text: 'Mintbloom Pro’s published Basic Cleaning scope is a routine reset for a lived-in home. It lists kitchen and bathroom surfaces, dusting and vacuuming, and mopping accessible floors. The listed scope does not include inside cabinets or appliances, exterior windows, heavy lifting, or post-construction debris.',
       },
       {
-        id: 'helpful-details',
+        id: 'basic-cleaning-scope',
         type: 'list',
         items: [
-          'Name the rooms or areas that should be included.',
-          'Call out move-in, move-out, turnover, or specialty needs.',
-          'Mention access details and anything that could affect timing.',
+          'Kitchen and bathroom surfaces',
+          'Dusting and vacuuming',
+          'Mopping accessible floors',
         ],
       },
       {
-        id: 'review-the-next-step',
+        id: 'scope-notes',
         type: 'heading',
-        text: 'Review the next step before work begins',
+        text: 'Share the details that shape the request',
         level: 2,
       },
       {
-        id: 'review-the-next-step-copy',
+        id: 'scope-notes-copy',
         type: 'paragraph',
-        text: 'For approved residential services, Mintbloom Pro presents the available scope and calculated total in the booking flow. Work that is deep, commercial, specialty, or otherwise variable can be reviewed for a quote instead.',
+        text: 'The request form asks for the property address and ZIP code, home or apartment details, the service type, and notes about the requested scope. Use the notes to explain relevant size, condition, access, or special requirements. Deep cleaning, move-in or move-out work, and other variable scopes may require a customized quote after review.',
       },
       {
-        id: 'replace-before-publishing',
+        id: 'lubbock-availability',
         type: 'heading',
-        text: 'Replace this sample before publishing final advice',
-        level: 3,
+        text: 'Lubbock availability depends on ZIP code and scope',
+        level: 2,
       },
       {
-        id: 'replace-before-publishing-copy',
+        id: 'lubbock-availability-copy',
         type: 'paragraph',
-        text: 'This starter record is a template for future city-targeted posts. Replace its copy, date, author, and optional image with approved editorial details while keeping its unique slug and structured body blocks.',
+        text: 'A Lubbock city name by itself does not confirm service availability. The submitted ZIP code is checked against Mintbloom Pro’s approved Lubbock-area coverage, and the requested scope is reviewed as well. Addresses outside the approved Lubbock-area ZIP lists need travel and scope review before a quote. Share the service address so the team can assess the actual request.',
+      },
+      {
+        id: 'scheduling',
+        type: 'heading',
+        text: 'How scheduling preferences work',
+        level: 2,
+      },
+      {
+        id: 'scheduling-copy',
+        type: 'paragraph',
+        text: 'For recurring residential service, the form accepts a preferred weekly, biweekly, or monthly cadence. It also lets you enter a preferred service date. That date is a preference only: Mintbloom Pro reviews the request and confirms timing afterward. Submitting a date does not reserve or confirm a cleaning appointment.',
+      },
+      {
+        id: 'pricing',
+        type: 'heading',
+        text: 'Pricing context for house cleaning in Lubbock',
+        level: 2,
+      },
+      {
+        id: 'pricing-copy',
+        type: 'paragraph',
+        text: 'Standard cleaning starts at $145 before market tax. This is a starting rate, not a guaranteed final total. The calculator provides an estimate for supported scopes; size, condition, safety, specialty materials, travel, and requested work can route a request to human review before the final quote.',
+      },
+      {
+        id: 'request',
+        type: 'heading',
+        text: 'How to request house cleaning in Lubbock',
+        level: 2,
+      },
+      {
+        id: 'request-copy',
+        type: 'paragraph',
+        text: 'Visit the booking form, choose the service you want reviewed, and provide the property address and ZIP code. Add the home details, requested scope, any relevant notes, and a preferred date or recurring cadence if applicable. Include your contact details so Mintbloom Pro can review the request and follow up with next steps. The submission is a service request—not a confirmed booking—and availability depends on the ZIP code and scope.',
       },
     ],
   },

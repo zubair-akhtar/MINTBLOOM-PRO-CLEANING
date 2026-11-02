@@ -1,170 +1,134 @@
-// @polsia:user-owned — load/save active pricing rate card and market tax.
-
+// @polsia:user-owned — server-side active rate-card persistence.
 import 'server-only';
 
-import { DEFAULT_PRICING_SETTINGS, LAUNCH_PRICING_LABEL } from '@/lib/business/pricing/defaults';
-import type { PricingSettings } from '@/lib/business/pricing/types';
+import type { Prisma } from '@prisma/client';
+import type { z } from 'zod';
+import { defaultPricingSettings } from '@/lib/business/pricing/defaults';
+import {
+  type PricingSettings,
+  pricingSettingsSchema,
+  type rateCardAdminResponseSchema,
+} from '@/lib/contracts/pricing';
 import { prisma } from '@/lib/db';
 
-function parseSettings(value: unknown): PricingSettings {
-  // Trust admin-saved JSON shape; merge onto defaults for forward-compat keys.
-  const raw = value && typeof value === 'object' ? (value as Partial<PricingSettings>) : {};
-  const rawServices = (raw.services ?? {}) as Partial<PricingSettings['services']>;
-  return {
-    ...DEFAULT_PRICING_SETTINGS,
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseStoredSettings(value: Prisma.JsonValue): PricingSettings {
+  const raw = isRecord(value) ? value : {};
+  const rawMarkets: unknown[] = Array.isArray(raw.markets)
+    ? raw.markets
+    : defaultPricingSettings.markets;
+  const markets: unknown[] = rawMarkets.map((market) => {
+    if (!isRecord(market)) return market;
+    const fallback = defaultPricingSettings.markets.find(
+      (candidate) =>
+        candidate.id === market.id ||
+        (typeof market.city === 'string' &&
+          typeof market.state === 'string' &&
+          candidate.city.toLocaleLowerCase('en-US') ===
+            market.city.trim().toLocaleLowerCase('en-US') &&
+          candidate.state === market.state.toUpperCase()),
+    );
+    return {
+      ...market,
+      taxBasisPoints:
+        typeof market.taxBasisPoints === 'number' || market.taxBasisPoints === null
+          ? market.taxBasisPoints
+          : (fallback?.taxBasisPoints ?? null),
+      pricingEnabled:
+        typeof market.pricingEnabled === 'boolean'
+          ? market.pricingEnabled
+          : (fallback?.pricingEnabled ?? true),
+      isActive:
+        typeof market.isActive === 'boolean' ? market.isActive : (fallback?.isActive ?? true),
+    };
+  });
+  const locations = new Set(
+    markets.flatMap((market) =>
+      isRecord(market) && typeof market.city === 'string' && typeof market.state === 'string'
+        ? [`${market.city.trim().toLocaleLowerCase('en-US')}|${market.state.toUpperCase()}`]
+        : [],
+    ),
+  );
+  for (const defaultMarket of defaultPricingSettings.markets) {
+    const location = `${defaultMarket.city.toLocaleLowerCase('en-US')}|${defaultMarket.state}`;
+    if (!locations.has(location)) markets.push(defaultMarket);
+  }
+
+  return pricingSettingsSchema.parse({
+    ...defaultPricingSettings,
     ...raw,
-    schemaVersion: 1,
-    rushFeeCents:
-      typeof raw.rushFeeCents === 'number' && raw.rushFeeCents >= 0
-        ? raw.rushFeeCents
-        : DEFAULT_PRICING_SETTINGS.rushFeeCents,
-    petHairCents:
-      typeof raw.petHairCents === 'number' && raw.petHairCents >= 0
-        ? raw.petHairCents
-        : DEFAULT_PRICING_SETTINGS.petHairCents,
-    // Deep-merge each service row so partial admin saves never wipe sibling rates.
-    services: {
-      standard: { ...DEFAULT_PRICING_SETTINGS.services.standard, ...rawServices.standard },
-      deep: { ...DEFAULT_PRICING_SETTINGS.services.deep, ...rawServices.deep },
-      move: { ...DEFAULT_PRICING_SETTINGS.services.move, ...rawServices.move },
-      airbnb: { ...DEFAULT_PRICING_SETTINGS.services.airbnb, ...rawServices.airbnb },
-    },
-    recurringDiscounts: {
-      ...DEFAULT_PRICING_SETTINGS.recurringDiscounts,
-      ...(raw.recurringDiscounts ?? {}),
-    },
-    travelBands: raw.travelBands?.length ? raw.travelBands : DEFAULT_PRICING_SETTINGS.travelBands,
-    addOns: raw.addOns?.length ? raw.addOns : DEFAULT_PRICING_SETTINGS.addOns,
+    includedSqFt: raw.includedSqFt ?? defaultPricingSettings.includedSqFt,
+    maxAutoSqFt: raw.maxAutoSqFt ?? defaultPricingSettings.maxAutoSqFt,
+    markets,
+  });
+}
+
+export class RateCardConflictError extends Error {
+  constructor() {
+    super(
+      'The rate card changed while you were editing. Reload the current version and try again.',
+    );
+  }
+}
+
+export async function getActivePricingSettings() {
+  await prisma.pricingRateCardVersion.createMany({
+    data: [{ version: 1, settings: defaultPricingSettings as Prisma.InputJsonValue }],
+    skipDuplicates: true,
+  });
+  const record = await prisma.pricingRateCardVersion.findFirst({ orderBy: { version: 'desc' } });
+  if (!record) throw new Error('The pricing rate card is unavailable.');
+  return {
+    version: record.version,
+    createdAt: record.createdAt,
+    settings: parseStoredSettings(record.settings),
   };
 }
 
-export async function ensureActiveRateCard() {
+export async function savePricingSettings(
+  expectedVersion: number,
+  settings: PricingSettings,
+  userId: string,
+) {
+  const parsedSettings = pricingSettingsSchema.parse(settings);
   try {
-    const active = await prisma.pricingRateCard.findFirst({
-      where: { isActive: true },
-      orderBy: { version: 'desc' },
+    return await prisma.$transaction(async (tx) => {
+      await tx.pricingRateCardVersion.createMany({
+        data: [{ version: 1, settings: defaultPricingSettings as Prisma.InputJsonValue }],
+        skipDuplicates: true,
+      });
+      const current = await tx.pricingRateCardVersion.findFirst({ orderBy: { version: 'desc' } });
+      if (!current || current.version !== expectedVersion) throw new RateCardConflictError();
+      return tx.pricingRateCardVersion.create({
+        data: {
+          version: current.version + 1,
+          settings: parsedSettings as Prisma.InputJsonValue,
+          createdByUserId: userId,
+        },
+      });
     });
-    if (active) {
-      return { ...active, settings: parseSettings(active.settings) };
-    }
-
-    const created = await prisma.pricingRateCard.create({
-      data: {
-        version: 1,
-        label: LAUNCH_PRICING_LABEL,
-        isActive: true,
-        settings: DEFAULT_PRICING_SETTINGS as object,
-      },
-    });
-    return { ...created, settings: parseSettings(created.settings) };
-  } catch {
-    // DB / table unavailable — serve launch defaults so the calculator still works.
-    return {
-      id: 'defaults',
-      version: 1,
-      label: LAUNCH_PRICING_LABEL,
-      isActive: true,
-      settings: DEFAULT_PRICING_SETTINGS,
-      createdAt: new Date(0),
-      updatedAt: new Date(0),
-    };
+  } catch (error) {
+    if (error instanceof RateCardConflictError) throw error;
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error.code === 'P2002' || error.code === 'P2034')
+    )
+      throw new RateCardConflictError();
+    throw error;
   }
 }
 
-export async function getActivePricingSettings(): Promise<{
-  version: number;
-  label: string;
-  settings: PricingSettings;
-}> {
-  const card = await ensureActiveRateCard();
-  return { version: card.version, label: card.label, settings: card.settings };
-}
-
-export async function saveNewRateCardVersion(input: {
-  label?: string;
-  settings: PricingSettings;
-}): Promise<{ version: number }> {
-  const latest = await prisma.pricingRateCard.findFirst({ orderBy: { version: 'desc' } });
-  const nextVersion = (latest?.version ?? 0) + 1;
-
-  await prisma.$transaction(async (tx) => {
-    await tx.pricingRateCard.updateMany({
-      where: { isActive: true },
-      data: { isActive: false },
-    });
-    await tx.pricingRateCard.create({
-      data: {
-        version: nextVersion,
-        label: input.label?.trim() || `Pricing v${nextVersion}`,
-        isActive: true,
-        settings: input.settings as object,
-      },
-    });
-  });
-
-  return { version: nextVersion };
-}
-
-/** Launch fallback when city is blank or market row is missing (keeps live estimates working). */
-const LAUNCH_ESTIMATE_FALLBACK = {
-  id: 'launch-fallback',
-  name: 'Lubbock',
-  city: 'Lubbock',
-  state: 'TX',
-  isActive: true,
-  pricingEnabled: true,
-  combinedTaxRateBps: 825,
-  createdAt: new Date(0),
-  updatedAt: new Date(0),
-};
-
-export async function resolveMarketForEstimate(city: string, state: string) {
-  const normalizedCity = city.trim() || 'Lubbock';
-  const normalizedState = (state.trim() || 'TX').toUpperCase();
-  try {
-    const market = await prisma.serviceMarket.findFirst({
-      where: {
-        city: { equals: normalizedCity, mode: 'insensitive' },
-        state: { equals: normalizedState, mode: 'insensitive' },
-        isActive: true,
-      },
-    });
-    if (market) return market;
-
-    // Prefer Lubbock launch market when the typed city is not configured yet.
-    const launch = await prisma.serviceMarket.findFirst({
-      where: {
-        city: { equals: 'Lubbock', mode: 'insensitive' },
-        state: { equals: 'TX', mode: 'insensitive' },
-        isActive: true,
-        pricingEnabled: true,
-      },
-    });
-    if (launch) return launch;
-  } catch {
-    // Tables missing / DB unavailable — still return a priced preview.
-  }
-  return { ...LAUNCH_ESTIMATE_FALLBACK };
-}
-
-export async function listMarketsForAdmin() {
-  return prisma.serviceMarket.findMany({
-    orderBy: [{ state: 'asc' }, { city: 'asc' }],
-  });
-}
-
-export async function updateMarketTax(input: {
-  id: string;
-  combinedTaxRateBps: number | null;
-  pricingEnabled: boolean;
-  isActive: boolean;
-}) {
-  return prisma.serviceMarket.update({
-    where: { id: input.id },
-    data: {
-      combinedTaxRateBps: input.combinedTaxRateBps,
-      pricingEnabled: input.pricingEnabled,
-      isActive: input.isActive,
-    },
-  });
+export function adminRateCardResponse(
+  record: Awaited<ReturnType<typeof getActivePricingSettings>>,
+) {
+  return {
+    version: record.version,
+    updatedAt: record.createdAt.toISOString(),
+    settings: record.settings,
+  } satisfies z.infer<typeof rateCardAdminResponseSchema>;
 }

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { signUp } from '@/lib/auth-client';
+import { trackMetaPixelEvent } from '@/lib/meta-pixel';
 
 // Email + password sign-up. Composes the template's base shadcn primitives
 // (Button/Input/Label) styled through the theme tokens. Restyle freely — this
@@ -29,6 +30,7 @@ export function SignUpForm() {
       setError(signUpError.message ?? 'Could not create your account. Try again.');
       return;
     }
+    trackMetaPixelEvent('Lead');
     window.location.assign('/');
   }
 

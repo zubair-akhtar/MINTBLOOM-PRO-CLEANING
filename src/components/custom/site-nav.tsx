@@ -128,8 +128,8 @@ export function SiteNav() {
           {siteName}
         </Link>
 
-        {/* Desktop (md+): inline slots — direct links + `menu` dropdowns */}
-        <div className="hidden items-center gap-1 md:flex">
+        {/* Desktop (lg+): inline slots — direct links + `menu` dropdowns */}
+        <div className="hidden items-center gap-1 lg:flex">
           {inline.map((slot) =>
             slot.type === 'link' ? (
               <Button
@@ -231,12 +231,12 @@ export function SiteNav() {
 
         {/* Keep booking visible on mobile; it remains the primary action at every width. */}
         <div className="ml-auto flex items-center gap-1">
-          <Button asChild size="sm" className="md:hidden">
+          <Button asChild size="sm" className="lg:hidden">
             <Link href="/book">Request a quote</Link>
           </Button>
 
           {/* Desktop secondary buttons */}
-          <div className="hidden items-center gap-1 md:flex">
+          <div className="hidden items-center gap-1 lg:flex">
             {secondary.map((item) => (
               <Button key={item.href} asChild size="sm">
                 <Link href={item.href} aria-current={isActive(item.href) ? 'page' : undefined}>
@@ -246,7 +246,7 @@ export function SiteNav() {
             ))}
           </div>
 
-          <div className="hidden md:block">
+          <div className="hidden lg:block">
             <AuthNav />
           </div>
 
@@ -257,7 +257,7 @@ export function SiteNav() {
           {collapsedCount > 0 && (
             <Sheet open={open} onOpenChange={setOpen}>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="md:hidden">
+                <Button variant="ghost" size="icon" className="lg:hidden">
                   <Menu />
                   <span className="sr-only">Open menu</span>
                 </Button>

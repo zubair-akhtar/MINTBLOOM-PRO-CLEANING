@@ -1,54 +1,56 @@
-// @polsia:user-owned — Google Places autocomplete (server-side; optional key).
+// @polsia:user-owned — Google Places address autocomplete (optional server key).
 import 'server-only';
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { env } from '@/lib/env';
+import { placesAutocompleteResponseSchema } from '@/lib/contracts/places';
 
 export const dynamic = 'force-dynamic';
 
-const Query = z.object({
-  input: z.string().trim().min(2).max(200),
+const googleResponseSchema = z.object({
+  status: z.string(),
+  predictions: z.array(z.object({ description: z.string(), place_id: z.string() })).optional(),
 });
 
 export async function GET(request: Request) {
-  const key = env.GOOGLE_MAPS_API_KEY;
+  const headers = { 'Cache-Control': 'no-store' };
+  const key = process.env.GOOGLE_MAPS_API_KEY?.trim();
   if (!key) {
-    return NextResponse.json({ enabled: false, predictions: [] });
+    return NextResponse.json({ enabled: false, predictions: [] }, { headers });
   }
 
-  const parsed = Query.safeParse({
-    input: new URL(request.url).searchParams.get('input') ?? '',
-  });
-  if (!parsed.success) {
-    return NextResponse.json({ enabled: true, predictions: [] });
+  const input = new URL(request.url).searchParams.get('input')?.trim() ?? '';
+  if (input.length < 3) {
+    return NextResponse.json({ enabled: true, predictions: [] }, { headers });
+  }
+  if (input.length > 200) {
+    return NextResponse.json({ error: 'invalid_input' }, { status: 400, headers });
   }
 
   const url = new URL('https://maps.googleapis.com/maps/api/place/autocomplete/json');
-  url.searchParams.set('input', parsed.data.input);
+  url.searchParams.set('input', input);
   url.searchParams.set('types', 'address');
   url.searchParams.set('components', 'country:us');
   url.searchParams.set('key', key);
 
-  const res = await fetch(url, { next: { revalidate: 0 } });
-  if (!res.ok) {
-    return NextResponse.json({ enabled: true, predictions: [], error: 'places_unavailable' }, { status: 502 });
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) {
+      return NextResponse.json({ error: 'places_unavailable' }, { status: 502, headers });
+    }
+    const parsed = googleResponseSchema.safeParse(await response.json());
+    if (!parsed.success || !['OK', 'ZERO_RESULTS'].includes(parsed.data.status)) {
+      return NextResponse.json({ error: 'places_unavailable' }, { status: 502, headers });
+    }
+    const result = placesAutocompleteResponseSchema.parse({
+      enabled: true,
+      predictions: (parsed.data.predictions ?? []).slice(0, 6).map((prediction) => ({
+        description: prediction.description,
+        placeId: prediction.place_id,
+      })),
+    });
+    return NextResponse.json(result, { headers });
+  } catch {
+    return NextResponse.json({ error: 'places_unavailable' }, { status: 502, headers });
   }
-
-  const data = (await res.json()) as {
-    status: string;
-    predictions?: { description: string; place_id: string }[];
-  };
-
-  if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
-    return NextResponse.json({ enabled: true, predictions: [], error: data.status }, { status: 502 });
-  }
-
-  return NextResponse.json({
-    enabled: true,
-    predictions: (data.predictions ?? []).slice(0, 6).map((p) => ({
-      description: p.description,
-      placeId: p.place_id,
-    })),
-  });
 }

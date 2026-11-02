@@ -1,4 +1,4 @@
-// @polsia:user-owned — v3 live estimate calculator for /book (request only, no payment).
+// @polsia:user-owned — quote-only Mintbloom residential estimate wizard.
 'use client';
 
 import {
@@ -17,1445 +17,1412 @@ import {
   Sparkles,
   UserRound,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { toast } from 'sonner';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AddressAutocomplete } from '@/components/custom/address-autocomplete';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { apiFetch } from '@/lib/api-client';
 import { formatUsdFromCents } from '@/lib/business/pricing/money';
 import {
-  EstimateResponse,
-  type EstimateResponse as EstimateResponseType,
+  type EstimateInput,
+  type EstimateResponse,
+  estimateInputSchema,
+  estimateResponseSchema,
+  type PublicRateCard,
+  publicRateCardSchema,
+  type publicServiceIds,
 } from '@/lib/contracts/pricing';
-import { intakeForms } from '@/lib/service-intake-config/forms';
-import { cn } from '@/lib/utils';
+import { submissionResponseSchema } from '@/modules/service-intake/contracts';
+import styles from './pricing-calculator.module.css';
 
-type ServiceId =
-  | 'standard'
-  | 'deep'
-  | 'move'
-  | 'airbnb'
-  | 'commercial'
-  | 'postConstruction';
+type ServiceId = (typeof publicServiceIds)[number];
+type Condition = 'routine' | 'heavy' | 'severe' | 'unknown';
+type Cadence = 'weekly' | 'biweekly' | 'monthly';
 
-const SERVICE_META: { id: ServiceId; label: string; hint: string; icon: typeof Home }[] = [
-  { id: 'standard', label: 'Standard / Basic', hint: '', icon: Home },
-  { id: 'deep', label: 'Deep cleaning', hint: '', icon: Sparkles },
-  { id: 'move', label: 'Move-in / Move-out', hint: '', icon: Building2 },
-  { id: 'airbnb', label: 'Airbnb turnover', hint: '', icon: CalendarDays },
-  { id: 'commercial', label: 'Commercial', hint: 'Walkthrough', icon: Building2 },
-  { id: 'postConstruction', label: 'Post-construction', hint: 'Quote', icon: ClipboardList },
-];
-
-export type InitialRateCard = {
-  version: number;
-  serviceHints: Record<string, string>;
-};
-
-const STEPS = [
-  { id: 'service', title: 'Property size', short: 'Property size', icon: Ruler },
-  { id: 'details', title: 'Details & add-ons', short: 'Details & add-ons', icon: ClipboardList },
-  { id: 'contact', title: 'Info & address', short: 'Info & address', icon: UserRound },
-] as const;
-
-type FormState = {
+type CalculatorForm = {
   service: ServiceId;
-  street: string;
+  squareFeet: number | '';
+  bedrooms: number | '5plus';
+  fullBaths: number;
+  halfBaths: number;
+  kitchens: number;
+  offices: number;
+  extraRooms: number;
+  condition: Condition;
+  highWork: boolean;
+  heavyConditionApproved: boolean;
+  cadence: Cadence | null;
+  returningRecurring: boolean;
+  ovenCavities: number;
+  refrigeratorCount: number;
+  cabinetDoors: number;
+  baseboards: boolean;
+  windowPanes: number;
+  windowTracks: number;
+  blinds: number;
+  linenBeds: number;
+  laundryLoads: number;
+  dishBlocks: number;
+  garageBays: number;
+  petHair: boolean;
+  rush: boolean;
+  travelMiles: number;
+  fullName: string;
+  email: string;
+  phone: string;
+  streetAddress: string;
   unit: string;
   city: string;
   state: string;
   zip: string;
-  squareFeet: string;
-  bedrooms: string;
-  fullBaths: string;
-  halfBaths: string;
-  offices: string;
-  extraLivingRooms: string;
-  kitchens: string;
-  cadence: 'one_time' | 'weekly' | 'biweekly' | 'monthly';
-  oven: string;
-  fridge: string;
-  cabinets: string;
-  baseboards: boolean;
-  linenChanges: string;
-  laundry: string;
-  dishes: string;
-  garage: string;
-  interiorWindows: string;
-  windowTracks: string;
-  blinds: string;
-  petHairNeeded: boolean;
-  rushRequested: boolean;
-  highWorkRequested: boolean;
-  severeOrUnknownCondition: boolean;
   preferredDate: string;
   notes: string;
-  fullName: string;
-  email: string;
-  phone: string;
 };
 
-const initial: FormState = {
+const STEPS = [
+  { id: 'property', title: 'Property size', icon: Ruler },
+  { id: 'details', title: 'Details & add-ons', icon: ClipboardList },
+  { id: 'contact', title: 'Info & address', icon: UserRound },
+] as const;
+
+const SERVICE_META: { id: ServiceId; label: string; hint?: string; icon: typeof Home }[] = [
+  { id: 'standard', label: 'Standard / Basic', icon: Home },
+  { id: 'deep', label: 'Deep cleaning', icon: Sparkles },
+  { id: 'move', label: 'Move-in / Move-out', icon: Building2 },
+  { id: 'airbnb', label: 'Airbnb turnover', icon: CalendarDays },
+  { id: 'commercial', label: 'Commercial', hint: 'Walkthrough', icon: Building2 },
+  { id: 'postConstruction', label: 'Post-construction', hint: 'Quote', icon: ClipboardList },
+];
+
+const BEDROOM_OPTIONS: [string, string][] = [
+  ['0', 'Studio (0)'],
+  ['1', '1'],
+  ['2', '2'],
+  ['3', '3'],
+  ['4', '4'],
+  ['5plus', '5+ (quote)'],
+];
+
+const EMPTY_FORM: CalculatorForm = {
   service: 'standard',
-  street: '',
-  unit: '',
-  city: '',
-  state: 'TX',
-  zip: '',
   squareFeet: '',
-  bedrooms: '0',
-  fullBaths: '1',
-  halfBaths: '0',
-  offices: '0',
-  extraLivingRooms: '0',
-  kitchens: '1',
-  cadence: 'one_time',
-  oven: '0',
-  fridge: '0',
-  cabinets: '0',
+  bedrooms: 0,
+  fullBaths: 1,
+  halfBaths: 0,
+  kitchens: 1,
+  offices: 0,
+  extraRooms: 0,
+  condition: 'routine',
+  highWork: false,
+  heavyConditionApproved: false,
+  cadence: null,
+  returningRecurring: false,
+  ovenCavities: 0,
+  refrigeratorCount: 0,
+  cabinetDoors: 0,
   baseboards: false,
-  linenChanges: '0',
-  laundry: '0',
-  dishes: '0',
-  garage: '0',
-  interiorWindows: '0',
-  windowTracks: '0',
-  blinds: '0',
-  petHairNeeded: false,
-  rushRequested: false,
-  highWorkRequested: false,
-  severeOrUnknownCondition: false,
-  preferredDate: '',
-  notes: '',
+  windowPanes: 0,
+  windowTracks: 0,
+  blinds: 0,
+  linenBeds: 0,
+  laundryLoads: 0,
+  dishBlocks: 0,
+  garageBays: 0,
+  petHair: false,
+  rush: false,
+  travelMiles: 0,
   fullName: '',
   email: '',
   phone: '',
+  streetAddress: '',
+  unit: '',
+  city: 'Lubbock',
+  state: 'TX',
+  zip: '',
+  preferredDate: '',
+  notes: '',
 };
 
-function n(value: string): number {
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
+const SERVICE_ALIASES: Record<string, ServiceId> = {
+  basicResidential: 'standard',
+  oneTimeResidential: 'standard',
+  recurringResidential: 'standard',
+  deepCleaning: 'deep',
+  moveInMoveOut: 'move',
+  officeCommercial: 'commercial',
+  postConstruction: 'postConstruction',
+  medicalGradeSanitation: 'medicalGradeSanitation',
+};
 
-/** Non-negative integer string for room / qty inputs (blocks negatives). */
-function nonNegIntString(value: string): string {
-  if (value.trim() === '') return '';
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed)) return '0';
-  return String(Math.max(0, parsed));
-}
-
-function todayIsoLocal(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function cadenceDisplay(cadence: FormState['cadence']): string {
-  if (cadence === 'one_time') return 'One time';
-  if (cadence === 'biweekly') return 'Biweekly';
-  if (cadence === 'weekly') return 'Weekly';
-  return 'Monthly';
-}
-
-const QUOTE_ONLY_SERVICES = new Set<ServiceId>(['commercial', 'postConstruction']);
-
-const ADDON_RESET: Pick<
-  FormState,
-  | 'oven'
-  | 'fridge'
-  | 'cabinets'
-  | 'baseboards'
-  | 'linenChanges'
-  | 'laundry'
-  | 'dishes'
-  | 'garage'
-  | 'interiorWindows'
+type DetailCountKey =
+  | 'ovenCavities'
+  | 'refrigeratorCount'
+  | 'cabinetDoors'
+  | 'windowPanes'
   | 'windowTracks'
   | 'blinds'
-  | 'petHairNeeded'
-  | 'rushRequested'
-  | 'highWorkRequested'
-  | 'severeOrUnknownCondition'
-  | 'cadence'
-> = {
-  oven: '0',
-  fridge: '0',
-  cabinets: '0',
-  baseboards: false,
-  linenChanges: '0',
-  laundry: '0',
-  dishes: '0',
-  garage: '0',
-  interiorWindows: '0',
-  windowTracks: '0',
-  blinds: '0',
-  petHairNeeded: false,
-  rushRequested: false,
-  highWorkRequested: false,
-  severeOrUnknownCondition: false,
-  cadence: 'one_time',
-};
+  | 'linenBeds'
+  | 'laundryLoads'
+  | 'dishBlocks'
+  | 'garageBays';
 
-function isEmail(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+const DETAIL_COUNTS: readonly [DetailCountKey, string, number, string?][] = [
+  ['ovenCavities', 'Oven interiors ($60 each)', 10],
+  ['refrigeratorCount', 'Refrigerator interiors ($45 each)', 10],
+  ['cabinetDoors', 'Cabinet doors/drawers', 500, '$60 up to 20; then $3 each. Included with Move.'],
+  ['windowPanes', 'Interior window panes ($8, $40 min)', 500],
+  ['windowTracks', 'Window tracks ($5 each)', 500],
+  ['blinds', 'Blinds hand-wipe ($8 each)', 500],
+  ['linenBeds', 'Linen / bed changes ($12)', 50],
+  ['laundryLoads', 'Laundry loads ($30, max 2)', 2],
+  ['dishBlocks', 'Dish blocks ($25 / 15 min, max 2)', 2],
+  ['garageBays', 'Garage sweep ($40 / bay)', 10],
+];
+
+const serviceLabel = (service: ServiceId) =>
+  SERVICE_META.find((item) => item.id === service)?.label ?? 'Residential cleaning';
+
+const isQuoteOnlyService = (service: ServiceId) =>
+  service === 'commercial' ||
+  service === 'postConstruction' ||
+  service === 'medicalGradeSanitation';
+
+function localToday() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Chicago',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
 }
 
-type FieldErrors = Partial<Record<keyof FormState | 'root', string>>;
+function asEstimateInput(form: CalculatorForm): EstimateInput | null {
+  if (form.squareFeet === '' && !isQuoteOnlyService(form.service)) return null;
+  const parsed = estimateInputSchema.safeParse({
+    service: form.service,
+    // Quote-only calculations return before using property size. Keep the existing
+    // estimate contract positive while letting those services skip residential sqft.
+    squareFeet: form.squareFeet === '' ? 1 : form.squareFeet,
+    bedrooms: form.bedrooms === '5plus' ? 5 : form.bedrooms,
+    fullBaths: form.fullBaths,
+    halfBaths: form.halfBaths,
+    kitchens: form.kitchens,
+    offices: form.offices,
+    extraRooms: form.extraRooms,
+    condition: form.condition,
+    highWork: form.highWork,
+    heavyConditionApproved: form.heavyConditionApproved,
+    cadence: form.service === 'standard' ? form.cadence : null,
+    returningRecurring: form.service === 'standard' && form.returningRecurring,
+    ovenCavities: form.ovenCavities,
+    refrigeratorCount: form.refrigeratorCount,
+    cabinetDoors: form.cabinetDoors,
+    baseboards: form.baseboards,
+    windowPanes: form.windowPanes,
+    windowTracks: form.windowTracks,
+    blinds: form.blinds,
+    linenBeds: form.linenBeds,
+    laundryLoads: form.laundryLoads,
+    dishBlocks: form.dishBlocks,
+    garageBays: form.garageBays,
+    petHair: form.petHair,
+    rush: form.rush,
+    travelMiles: form.travelMiles,
+    city: form.city,
+    state: form.state,
+  });
+  return parsed.success ? parsed.data : null;
+}
+
+function phoneIsValid(phone: string) {
+  if (!/^[+\d() .-]{5,40}$/.test(phone)) return false;
+  const digits = phone.replace(/\D/g, '');
+  return digits.length >= 10 && digits.length <= 15;
+}
 
 export function PricingCalculator({
-  initialRateCard = null,
+  initialRateCard,
 }: {
-  initialRateCard?: InitialRateCard | null;
+  initialRateCard: {
+    version: number;
+    includedSqFt: number;
+    serviceHints: Record<string, string>;
+  } | null;
 }) {
+  const [form, setForm] = useState(EMPTY_FORM);
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState<FormState>(initial);
-  const [errors, setErrors] = useState<FieldErrors>({});
-  const [estimate, setEstimate] = useState<EstimateResponseType | null>(null);
-  const [estimating, setEstimating] = useState(false);
+  const [today, setToday] = useState('');
+  const [rateCard, setRateCard] = useState<PublicRateCard | null>(
+    initialRateCard ? publicRateCardSchema.parse(initialRateCard) : null,
+  );
+  const [rateCardError, setRateCardError] = useState(false);
+  const [estimate, setEstimate] = useState<EstimateResponse | null>(null);
+  const [estimateLoading, setEstimateLoading] = useState(false);
+  const [estimateError, setEstimateError] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [submitError, setSubmitError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [reference, setReference] = useState<string | null>(null);
-  const [serviceHints, setServiceHints] = useState<Record<string, string>>(
-    () => initialRateCard?.serviceHints ?? {},
-  );
-  const [rateCardVersion, setRateCardVersion] = useState<number | null>(
-    () => initialRateCard?.version ?? null,
-  );
-  const [ratesReady, setRatesReady] = useState(() => Boolean(initialRateCard));
+  const [reference, setReference] = useState('');
+  const attemptId = useRef<string | null>(null);
+  const estimateInput = useMemo(() => asEstimateInput(form), [form]);
 
-  // Client refresh keeps hints in sync after admin saves (no hardcoded defaults).
+  useEffect(() => {
+    setToday(localToday());
+    const queryService = new URLSearchParams(window.location.search).get('service');
+    const requested = queryService ? SERVICE_ALIASES[queryService] : undefined;
+    if (requested)
+      setForm((current) => ({
+        ...current,
+        service: requested,
+        cadence: null,
+        returningRecurring: false,
+      }));
+  }, []);
+
   useEffect(() => {
     let active = true;
-    fetch('/api/pricing/rate-card', { cache: 'no-store' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then(
-        (payload: {
-          version?: number;
-          services?: Record<string, { baseCents?: number }>;
-        } | null) => {
-          if (!active) return;
-          if (!payload?.services) {
-            setRatesReady(true);
-            return;
-          }
-          if (typeof payload.version === 'number') setRateCardVersion(payload.version);
-          const hints: Record<string, string> = {
-            commercial: 'Walkthrough',
-            postConstruction: 'Quote',
-          };
-          for (const [id, row] of Object.entries(payload.services)) {
-            if (typeof row.baseCents === 'number') {
-              hints[id] = `From ${formatUsdFromCents(row.baseCents)}`;
-            }
-          }
-          setServiceHints(hints);
-          setRatesReady(true);
-        },
-      )
+    apiFetch('/api/pricing/rate-card', { schema: publicRateCardSchema, cache: 'no-store' })
+      .then((result) => {
+        if (!active) return;
+        setRateCard(result);
+        setRateCardError(false);
+      })
       .catch(() => {
-        if (active) setRatesReady(true);
+        if (active && !initialRateCard) setRateCardError(true);
       });
     return () => {
       active = false;
     };
-  }, []);
-
-  const SERVICES = useMemo(
-    () =>
-      SERVICE_META.map((s) => {
-        const hint =
-          serviceHints[s.id] ||
-          s.hint ||
-          (ratesReady ? '' : '…');
-        return { ...s, hint };
-      }),
-    [serviceHints, ratesReady],
-  );
-
-  const set = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-    setErrors((prev) => {
-      if (!prev[key]) return prev;
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-  }, []);
-
-  const setNonNeg = useCallback(
-    (key: keyof FormState, value: string) => {
-      set(key, nonNegIntString(value) as FormState[typeof key]);
-    },
-    [set],
-  );
-
-  function selectService(id: ServiceId) {
-    setForm((prev) => {
-      const next: FormState = { ...prev, service: id };
-      if (id !== 'standard') {
-        next.cadence = 'one_time';
-      }
-      if (QUOTE_ONLY_SERVICES.has(id)) {
-        Object.assign(next, ADDON_RESET);
-      }
-      return next;
-    });
-    setErrors((prev) => {
-      if (!prev.service) return prev;
-      const next = { ...prev };
-      delete next.service;
-      return next;
-    });
-  }
-
-  const bedroomsValue = form.bedrooms === '5plus' ? '5plus' : Math.max(0, n(form.bedrooms));
-  const hasSqft = form.squareFeet.trim() !== '' && n(form.squareFeet) > 0;
-  const isQuoteOnlyService = QUOTE_ONLY_SERVICES.has(form.service);
-
-  const estimateBody = useMemo(() => {
-    const sqftParsed = hasSqft ? n(form.squareFeet) : null;
-    return {
-      service: form.service,
-      city: form.city || 'Lubbock',
-      state: form.state || 'TX',
-      zip: form.zip || '79401',
-      squareFeet: sqftParsed,
-      bedrooms: bedroomsValue,
-      fullBaths: Math.max(0, n(form.fullBaths)),
-      halfBaths: Math.max(0, n(form.halfBaths)),
-      offices: Math.max(0, n(form.offices)),
-      extraLivingRooms: Math.max(0, n(form.extraLivingRooms)),
-      kitchens: Math.max(1, n(form.kitchens)),
-      cadence: form.service === 'standard' ? form.cadence : ('one_time' as const),
-      // PDF: first visit is full price; recurring discount from second Standard visit.
-      isFirstRecurringVisit: true,
-      addOnQuantities: {
-        oven: Math.max(0, n(form.oven)),
-        fridge: Math.max(0, n(form.fridge)),
-        cabinets: Math.max(0, n(form.cabinets)),
-        baseboards: form.baseboards ? 1 : 0,
-        linenChanges: Math.max(0, n(form.linenChanges)),
-        laundry: Math.max(0, n(form.laundry)),
-        dishes: Math.max(0, n(form.dishes)),
-        garage: Math.max(0, n(form.garage)),
-        interiorWindows: Math.max(0, n(form.interiorWindows)),
-        windowTracks: Math.max(0, n(form.windowTracks)),
-        blinds: Math.max(0, n(form.blinds)),
-      },
-      heavyConditionApproved: false,
-      petHairNeeded: form.petHairNeeded,
-      rushRequested: form.rushRequested,
-      travelMiles: null,
-      highWorkRequested: form.highWorkRequested,
-      severeOrUnknownCondition: form.severeOrUnknownCondition,
-    };
-  }, [form, bedroomsValue, hasSqft]);
-
-  const selectionDetails = useMemo(() => {
-    const serviceLabel = SERVICES.find((s) => s.id === form.service)?.label ?? form.service;
-    const sqftLabel = hasSqft
-      ? `${n(form.squareFeet).toLocaleString()} sq. ft.`
-      : 'Not entered yet';
-    const bedsLabel = form.bedrooms === '5plus' ? '5+' : form.bedrooms === '0' ? 'Studio' : form.bedrooms;
-    const fullBaths = Math.max(0, n(form.fullBaths));
-    const halfBaths = Math.max(0, n(form.halfBaths));
-
-    const rows: { label: string; value: string }[] = [
-      { label: 'Service', value: serviceLabel },
-      { label: 'Size', value: sqftLabel },
-    ];
-
-    if (!isQuoteOnlyService) {
-      rows.push(
-        { label: 'Bedrooms', value: String(bedsLabel) },
-        { label: 'Baths', value: `${fullBaths} full · ${halfBaths} half` },
-      );
-      if (n(form.offices) > 0) rows.push({ label: 'Offices', value: String(n(form.offices)) });
-      if (n(form.extraLivingRooms) > 0) {
-        rows.push({ label: 'Extra living', value: String(n(form.extraLivingRooms)) });
-      }
-      if (n(form.kitchens) > 1) rows.push({ label: 'Kitchens', value: String(n(form.kitchens)) });
-      if (form.service === 'standard') {
-        rows.push({ label: 'Frequency', value: cadenceDisplay(form.cadence) });
-      }
-    }
-
-    if (!isQuoteOnlyService) {
-      const addOns: string[] = [];
-      if (n(form.oven) > 0) addOns.push(`Oven ×${n(form.oven)}`);
-      if (n(form.fridge) > 0) addOns.push(`Fridge ×${n(form.fridge)}`);
-      if (n(form.cabinets) > 0) addOns.push(`Cabinets ×${n(form.cabinets)} doors`);
-      if (form.baseboards) addOns.push('Baseboards');
-      if (n(form.interiorWindows) > 0) addOns.push(`Windows ×${n(form.interiorWindows)}`);
-      if (n(form.windowTracks) > 0) addOns.push(`Tracks ×${n(form.windowTracks)}`);
-      if (n(form.blinds) > 0) addOns.push(`Blinds ×${n(form.blinds)}`);
-      if (n(form.laundry) > 0) addOns.push(`Laundry ×${n(form.laundry)}`);
-      if (n(form.linenChanges) > 0) addOns.push(`Linens ×${n(form.linenChanges)}`);
-      if (n(form.dishes) > 0) addOns.push(`Dishes ×${n(form.dishes)}`);
-      if (n(form.garage) > 0) addOns.push(`Garage ×${n(form.garage)}`);
-      if (form.petHairNeeded) addOns.push('Pet hair');
-      if (form.rushRequested) addOns.push('Rush');
-      if (form.highWorkRequested) addOns.push('High surfaces');
-      if (form.severeOrUnknownCondition) addOns.push('Severe condition');
-      if (addOns.length) rows.push({ label: 'Add-ons', value: addOns.join(', ') });
-    }
-
-    return rows;
-  }, [form, hasSqft, isQuoteOnlyService, SERVICES]);
+  }, [initialRateCard]);
 
   useEffect(() => {
-    if (!hasSqft && !isQuoteOnlyService) {
-      setEstimate(null);
-      setEstimating(false);
+    setEstimate(null);
+    setEstimateError(false);
+    if (!estimateInput || !rateCard) {
+      setEstimateLoading(false);
       return;
     }
     let active = true;
-    setEstimate(null);
-    setEstimating(true);
-    const timer = setTimeout(() => {
+    setEstimateLoading(true);
+    const timer = window.setTimeout(() => {
       apiFetch('/api/pricing/estimate', {
         method: 'POST',
-        body: JSON.stringify(estimateBody),
-        schema: EstimateResponse,
+        body: JSON.stringify(estimateInput),
+        schema: estimateResponseSchema,
         cache: 'no-store',
       })
         .then((result) => {
-          if (active) {
-            setEstimate(result);
-            if (typeof result.rateCardVersion === 'number') {
-              setRateCardVersion(result.rateCardVersion);
-            }
+          if (!active) return;
+          setEstimate(result);
+          setEstimateLoading(false);
+          if (result.version !== rateCard.version) {
+            apiFetch('/api/pricing/rate-card', {
+              schema: publicRateCardSchema,
+              cache: 'no-store',
+            })
+              .then((updated) => active && setRateCard(updated))
+              .catch(() => undefined);
           }
         })
         .catch(() => {
-          if (active) setEstimate(null);
-        })
-        .finally(() => {
-          if (active) setEstimating(false);
+          if (!active) return;
+          setEstimateError(true);
+          setEstimateLoading(false);
         });
     }, 180);
     return () => {
       active = false;
-      clearTimeout(timer);
+      window.clearTimeout(timer);
     };
-  }, [estimateBody, hasSqft, isQuoteOnlyService]);
+  }, [estimateInput, rateCard]);
 
-  function validateStep(index: number): boolean {
-    const next: FieldErrors = {};
-    if (index === 0) {
-      if (!form.service) next.service = 'Choose a service.';
-      if (!form.squareFeet.trim() || n(form.squareFeet) <= 0) {
-        next.squareFeet = 'Enter square footage (required for estimate).';
-      }
-      if (form.fullBaths === '' || Number.isNaN(n(form.fullBaths)) || n(form.fullBaths) < 0) {
-        next.fullBaths = 'Enter full bathrooms (0 is OK).';
-      }
-      if (form.halfBaths === '' || Number.isNaN(n(form.halfBaths)) || n(form.halfBaths) < 0) {
-        next.halfBaths = 'Enter half bathrooms (0 is OK).';
-      }
-    }
-    if (index === 2) {
-      if (!form.fullName.trim()) next.fullName = 'Name is required.';
-      if (!form.email.trim() || !isEmail(form.email)) next.email = 'Valid email is required.';
-      const phoneDigits = form.phone.replace(/\D/g, '');
-      if (!form.phone.trim()) {
-        next.phone = 'Phone is required.';
-      } else if (phoneDigits.length < 7) {
-        next.phone = 'Enter a valid phone number.';
-      }
-      if (!form.street.trim()) next.street = 'Street address is required.';
-      if (!form.city.trim()) next.city = 'City is required.';
-      if (!form.state.trim()) next.state = 'State is required.';
-      if (!form.zip.trim() || form.zip.trim().length < 5) next.zip = 'Valid ZIP is required.';
-      if (form.preferredDate && form.preferredDate < todayIsoLocal()) {
-        next.preferredDate = 'Preferred date cannot be in the past.';
-      }
-    }
-    setErrors(next);
-    return Object.keys(next).length === 0;
+  function update<K extends keyof CalculatorForm>(key: K, value: CalculatorForm[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+    setFieldErrors((current) => ({ ...current, [key]: '' }));
   }
 
-  function goNext() {
-    if (!validateStep(step)) {
-      toast.error('Please complete the required fields before continuing.');
-      return;
-    }
-    setStep((s) => Math.min(s + 1, STEPS.length - 1));
+  function chooseService(service: ServiceId) {
+    setForm((current) => ({
+      ...current,
+      service,
+      cadence: null,
+      returningRecurring: false,
+      ovenCavities: 0,
+      refrigeratorCount: 0,
+      cabinetDoors: 0,
+      baseboards: false,
+      windowPanes: 0,
+      windowTracks: 0,
+      blinds: 0,
+      linenBeds: 0,
+      laundryLoads: 0,
+      dishBlocks: 0,
+      garageBays: 0,
+      petHair: false,
+      rush: false,
+    }));
+    setFieldErrors({});
   }
 
-  function goBack() {
-    setErrors({});
-    setStep((s) => Math.max(s - 1, 0));
+  function validateStep(): boolean {
+    const errors: Record<string, string> = {};
+    if (step === 0 && !isQuoteOnlyService(form.service)) {
+      if (form.squareFeet === '')
+        errors.squareFeet = 'Enter the home’s square footage to see an estimate.';
+      else if (!Number.isInteger(form.squareFeet) || form.squareFeet < 1)
+        errors.squareFeet = 'Enter a square footage greater than zero.';
+    }
+    if (step === 2) {
+      if (!form.fullName.trim()) errors.fullName = 'Enter your name.';
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()))
+        errors.email = 'Enter a valid email.';
+      if (!form.phone.trim()) errors.phone = 'Phone number is required.';
+      else if (!phoneIsValid(form.phone))
+        errors.phone = 'Enter a valid phone number with at least 10 digits.';
+      if (!form.streetAddress.trim()) errors.streetAddress = 'Enter a street address.';
+      if (!form.city.trim()) errors.city = 'Enter a city.';
+      if (!/^[A-Za-z]{2}$/.test(form.state.trim())) errors.state = 'Enter a two-letter state.';
+      if (!/^\d{5}(?:-\d{4})?$/.test(form.zip.trim())) errors.zip = 'Enter a valid ZIP code.';
+      if (form.preferredDate && today && form.preferredDate < today)
+        errors.preferredDate = 'Choose today or a future date.';
+    }
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
+
+  function nextStep() {
+    if (!validateStep()) return;
+    setSubmitError('');
+    setStep((current) => Math.min(current + 1, STEPS.length - 1));
+  }
+
+  function previousStep() {
+    setSubmitError('');
+    setStep((current) => Math.max(current - 1, 0));
   }
 
   async function submitRequest() {
-    if (!validateStep(2)) {
-      toast.error('Please complete the required fields.');
-      return;
-    }
+    if (!validateStep() || !estimateInput || estimateLoading || estimateError) return;
     setSubmitting(true);
+    setSubmitError('');
+    attemptId.current ??= crypto.randomUUID();
+    const answers = {
+      service: form.service,
+      ...(form.squareFeet === '' ? {} : { square_feet: form.squareFeet }),
+      bedrooms: form.bedrooms === '5plus' ? 5 : form.bedrooms,
+      bedroom_selection: form.bedrooms === '5plus' ? '5+' : String(form.bedrooms),
+      full_baths: form.fullBaths,
+      half_baths: form.halfBaths,
+      kitchens: form.kitchens,
+      cadence: form.cadence ?? '',
+      returning_recurring: form.returningRecurring ? 'yes' : 'no',
+      condition: form.condition,
+      high_work: form.highWork ? 'yes' : 'no',
+      heavy_condition_approved: form.heavyConditionApproved ? 'yes' : 'no',
+      offices: form.offices,
+      extra_rooms: form.extraRooms,
+      oven_cavities: form.ovenCavities,
+      refrigerator_interior_count: form.refrigeratorCount,
+      cabinet_doors: form.cabinetDoors,
+      baseboards: form.baseboards ? 'yes' : 'no',
+      window_panes: form.windowPanes,
+      window_tracks: form.windowTracks,
+      blinds: form.blinds,
+      linen_beds: form.linenBeds,
+      laundry_loads: form.laundryLoads,
+      dish_blocks: form.dishBlocks,
+      garage_bays: form.garageBays,
+      pet_hair: form.petHair ? 'yes' : 'no',
+      rush: form.rush ? 'yes' : 'no',
+      travel_miles: form.travelMiles,
+      full_name: form.fullName.trim(),
+      email: form.email.trim(),
+      phone: form.phone.trim(),
+      street_address: form.streetAddress.trim(),
+      unit: form.unit.trim(),
+      city: form.city.trim(),
+      state: form.state.trim().toUpperCase(),
+      zip: form.zip.trim(),
+      preferred_date: form.preferredDate,
+      notes: form.notes.trim(),
+    };
+
     try {
-      const formDef = intakeForms.find((f) => f.id === 'cleaning-quote');
-      if (!formDef) throw new Error('Form missing');
-
-      const snapshot = JSON.stringify({
-        status: estimate?.status,
-        totalCents: estimate?.totalCents,
-        subtotalCents: estimate?.subtotalCents,
-        taxCents: estimate?.taxCents,
-        rateCardVersion: estimate?.rateCardVersion,
-        lines: estimate?.lines,
-        reasons: estimate?.reasons,
-      }).slice(0, 3900);
-
-      const serviceLabel = SERVICES.find((s) => s.id === form.service)?.label ?? form.service;
-      const answers = {
-        service_type:
-          form.service === 'standard'
-            ? 'basicResidential'
-            : form.service === 'deep'
-              ? 'deepCleaning'
-              : form.service === 'move'
-                ? 'moveInMoveOut'
-                : form.service === 'airbnb'
-                  ? 'oneTimeResidential'
-                  : form.service === 'commercial'
-                    ? 'officeCommercial'
-                    : 'postConstruction',
-        property_type:
-          form.service === 'commercial'
-            ? 'commercial'
-            : form.service === 'postConstruction'
-              ? 'builder'
-              : 'residential',
-        bedrooms: form.bedrooms === '5plus' ? 5 : n(form.bedrooms),
-        bathrooms: n(form.fullBaths) + n(form.halfBaths),
-        cadence: form.cadence,
-        street: form.street,
-        unit: form.unit,
-        city: form.city,
-        state: form.state,
-        zip: form.zip,
-        preferred_date: form.preferredDate || undefined,
-        scope_notes: [
-          `Service: ${serviceLabel}`,
-          `Sq ft: ${form.squareFeet}`,
-          `Beds: ${form.bedrooms}; full baths: ${form.fullBaths}; half baths: ${form.halfBaths}`,
-          `Offices: ${form.offices}; extra living: ${form.extraLivingRooms}; kitchens: ${form.kitchens}`,
-          form.notes,
-          estimate?.status === 'priced'
-            ? `Estimate total: ${formatUsdFromCents(estimate.totalCents)} (v${estimate.rateCardVersion})`
-            : `Quote required: ${(estimate?.reasons ?? []).join('; ')}`,
-        ]
-          .filter(Boolean)
-          .join('\n')
-          .slice(0, 4000),
-        estimate_snapshot: snapshot,
-        full_name: form.fullName,
-        email: form.email,
-        phone: form.phone,
-      };
-
-      const result = await apiFetch<{ reference?: string; id?: string }>('/api/service-intake', {
+      const result = await apiFetch('/api/service-intake', {
         method: 'POST',
         body: JSON.stringify({
-          formId: formDef.id,
-          formVersion: formDef.version,
-          attemptId: crypto.randomUUID(),
+          formId: 'mintbloom-pricing-v3',
+          formVersion: 1,
+          attemptId: attemptId.current,
           answers,
         }),
+        schema: submissionResponseSchema,
       });
-      setReference(result.reference ?? result.id ?? 'received');
-      toast.success('Request submitted');
-    } catch {
-      toast.error('Could not submit your request. Please try again.');
+      setReference(result.reference);
+      attemptId.current = null;
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error('Could not send the request.');
+      if (failure.message.endsWith('(400)')) {
+        const body = failure.cause as { errors?: Record<string, string> } | undefined;
+        const keyMap: Record<string, keyof CalculatorForm> = {
+          square_feet: 'squareFeet',
+          full_name: 'fullName',
+          email: 'email',
+          phone: 'phone',
+          street_address: 'streetAddress',
+          preferred_date: 'preferredDate',
+        };
+        const mapped: Record<string, string> = {};
+        for (const [key, message] of Object.entries(body?.errors ?? {})) {
+          const formKey = keyMap[key] ?? key;
+          mapped[formKey] = message;
+        }
+        setFieldErrors(mapped);
+        attemptId.current = null;
+        setSubmitError('Please review the highlighted details and try again.');
+      } else {
+        setSubmitError(
+          'We could not confirm that your request was received. Keep this page open and retry.',
+        );
+      }
     } finally {
       setSubmitting(false);
     }
   }
 
-  const isQuote =
-    estimate?.status === 'quote_required' ||
-    form.service === 'commercial' ||
-    form.service === 'postConstruction' ||
-    form.bedrooms === '5plus';
+  const displayTotal =
+    estimate?.status === 'priced' && estimate.totalCents !== null
+      ? formatUsdFromCents(estimate.totalCents)
+      : null;
+  const quoteLabel = form.service === 'commercial' ? 'Walkthrough required' : 'Quote required';
+  const selectionDetails = useMemo(() => {
+    const bedroomLabel =
+      form.bedrooms === '5plus' ? '5+' : form.bedrooms === 0 ? 'Studio' : String(form.bedrooms);
+    const rows: { label: string; value: string }[] = [
+      {
+        label: 'Service',
+        value: serviceLabel(form.service),
+      },
+      {
+        label: 'Home size',
+        value:
+          form.squareFeet === ''
+            ? 'Not entered yet'
+            : `${form.squareFeet.toLocaleString('en-US')} sq ft`,
+      },
+      { label: 'Bedrooms', value: bedroomLabel },
+      { label: 'Baths', value: `${form.fullBaths} full · ${form.halfBaths} half` },
+    ];
 
-  if (reference) {
-    return (
-      <div className="mx-auto max-w-lg space-y-4 rounded-3xl border border-primary/20 bg-gradient-to-b from-primary/10 to-card p-6 text-center shadow-sm sm:p-8">
-        <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground">
-          <Check className="size-7" aria-hidden />
-        </div>
-        <h2 className="text-2xl font-semibold tracking-tight">Request received</h2>
-        <p className="text-sm text-muted-foreground">
-          Reference <span className="font-semibold text-foreground">{reference}</span>. We will review
-          your details and contact you. This is not a confirmed booking.
-        </p>
-        <Button type="button" className="min-h-11 w-full sm:w-auto" onClick={() => window.location.assign('/book')}>
-          Start another estimate
-        </Button>
-      </div>
-    );
-  }
+    if (form.offices > 0) rows.push({ label: 'Offices', value: String(form.offices) });
+    if (form.extraRooms > 0)
+      rows.push({ label: 'Extra living areas', value: String(form.extraRooms) });
+    if (form.kitchens > 1) rows.push({ label: 'Kitchens', value: String(form.kitchens) });
+    if (form.service === 'standard')
+      rows.push({
+        label: 'Frequency',
+        value: form.cadence
+          ? `${form.cadence[0]?.toUpperCase()}${form.cadence.slice(1)}`
+          : 'One time',
+      });
+    rows.push({
+      label: 'Condition',
+      value: {
+        routine: 'Routine upkeep',
+        heavy: 'Heavy buildup',
+        severe: 'Severe buildup',
+        unknown: 'Not sure',
+      }[form.condition],
+    });
+
+    const addOns: string[] = [];
+    if (form.ovenCavities > 0) addOns.push(`Oven interior ×${form.ovenCavities}`);
+    if (form.refrigeratorCount > 0) addOns.push(`Refrigerator interior ×${form.refrigeratorCount}`);
+    if (form.cabinetDoors > 0) addOns.push(`Cabinet doors ×${form.cabinetDoors}`);
+    if (form.baseboards) addOns.push('Baseboards');
+    if (form.windowPanes > 0) addOns.push(`Window panes ×${form.windowPanes}`);
+    if (form.windowTracks > 0) addOns.push(`Window tracks ×${form.windowTracks}`);
+    if (form.blinds > 0) addOns.push(`Blinds ×${form.blinds}`);
+    if (form.linenBeds > 0) addOns.push(`Linen changes ×${form.linenBeds}`);
+    if (form.laundryLoads > 0) addOns.push(`Laundry loads ×${form.laundryLoads}`);
+    if (form.dishBlocks > 0) addOns.push(`Dish blocks ×${form.dishBlocks}`);
+    if (form.garageBays > 0) addOns.push(`Garage bays ×${form.garageBays}`);
+    if (form.petHair) addOns.push('Extra pet-hair work');
+    if (form.rush) addOns.push('Rush request');
+    if (addOns.length > 0) rows.push({ label: 'Add-ons', value: addOns.join(', ') });
+
+    return rows;
+  }, [form]);
+  const activeRateCardVersion = estimate?.version ?? rateCard?.version ?? '—';
 
   return (
-    <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-8">
-      <div className="space-y-5">
-        <header className="space-y-1">
-          <p className="text-sm font-medium text-primary">Mintbloom estimate</p>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Get your cleaning price</h1>
-          <p className="text-sm text-muted-foreground">
-            Complete each step — required fields must be filled before you continue.
-          </p>
-        </header>
+    <div className={styles.page}>
+      <header className={styles.intro}>
+        <p className={styles.eyebrow}>Mintbloom Pro · Lubbock-area homes</p>
+        <h1 className={styles.title}>A clearer estimate starts with your space.</h1>
+        <p className={styles.lede}>
+          Tell us about the home and the cleaning you need. You’ll get a live estimate when the
+          scope fits the calculator, or a walkthrough review when it needs a closer look.
+        </p>
+      </header>
 
-        {/* Chevron wizard: active = primary; inactive = light gray; white arrow line only */}
-        <nav aria-label="Estimate steps" className="w-full overflow-hidden rounded-md">
-          <ol className="flex w-full">
-            {STEPS.map((item, index) => {
-              const Icon = item.icon;
-              const reached = index <= step;
-              const isFirst = index === 0;
-              const isLast = index === STEPS.length - 1;
-              const arrow = 16;
-              const clipPath = isLast
-                ? `polygon(0 0, 100% 0, 100% 100%, 0 100%, ${arrow}px 50%)`
-                : isFirst
-                  ? `polygon(0 0, calc(100% - ${arrow}px) 0, 100% 50%, calc(100% - ${arrow}px) 100%, 0 100%)`
-                  : `polygon(0 0, calc(100% - ${arrow}px) 0, 100% 50%, calc(100% - ${arrow}px) 100%, 0 100%, ${arrow}px 50%)`;
+      <nav aria-label="Estimate steps" className={styles.stepNav}>
+        <ol>
+          {STEPS.map((item, index) => {
+            const Icon = item.icon;
+            const reached = index <= step;
+            const isFirst = index === 0;
+            const isLast = index === STEPS.length - 1;
+            const arrow = 16;
+            const clipPath = isLast
+              ? `polygon(0 0, 100% 0, 100% 100%, 0 100%, ${arrow}px 50%)`
+              : isFirst
+                ? `polygon(0 0, calc(100% - ${arrow}px) 0, 100% 50%, calc(100% - ${arrow}px) 100%, 0 100%)`
+                : `polygon(0 0, calc(100% - ${arrow}px) 0, 100% 50%, calc(100% - ${arrow}px) 100%, 0 100%, ${arrow}px 50%)`;
 
-              return (
-                <li
-                  key={item.id}
-                  className="relative min-w-0 flex-1"
+            return (
+              <li
+                key={item.id}
+                className={styles.step}
+                style={{
+                  marginLeft: isFirst ? 0 : `-${arrow - 2}px`,
+                  zIndex: STEPS.length - index,
+                }}
+              >
+                <button
+                  type="button"
+                  disabled={index > step}
+                  aria-current={index === step ? 'step' : undefined}
+                  aria-label={`Step ${index + 1}: ${item.title}`}
+                  onClick={() => {
+                    if (index < step) {
+                      setFieldErrors({});
+                      setStep(index);
+                    }
+                  }}
+                  className={`${styles.stepButton} ${reached ? styles.stepCurrent : ''}`}
                   style={{
-                    marginLeft: isFirst ? 0 : `-${arrow - 2}px`,
-                    zIndex: STEPS.length - index,
+                    clipPath,
+                    filter: isLast ? undefined : 'drop-shadow(2px 0 0 #ffffff)',
                   }}
                 >
-                  <button
-                    type="button"
-                    disabled={index > step}
-                    aria-current={index === step ? 'step' : undefined}
-                    onClick={() => {
-                      if (index < step) {
-                        setErrors({});
-                        setStep(index);
-                      }
-                    }}
-                    className={cn(
-                      'flex h-[4.75rem] w-full flex-col items-center justify-center gap-1 px-4 text-center transition-colors sm:h-[5.25rem] sm:px-6',
-                      reached
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-zinc-200 text-zinc-600',
-                      index > step && 'cursor-not-allowed',
-                    )}
-                    style={{
-                      clipPath,
-                      // White chevron border line between steps (no gap)
-                      filter: isLast ? undefined : 'drop-shadow(2px 0 0 #ffffff)',
-                    }}
-                  >
-                    <span
-                      className={cn(
-                        'flex size-7 items-center justify-center rounded-full text-xs font-bold sm:size-8 sm:text-sm',
-                        reached
-                          ? 'bg-white text-primary shadow-sm'
-                          : 'bg-white text-zinc-500',
-                      )}
-                    >
-                      {index < step ? (
-                        <Check className="size-3.5 sm:size-4" strokeWidth={2.5} />
-                      ) : (
-                        index + 1
-                      )}
-                    </span>
-                    <span className="flex max-w-full items-center justify-center gap-1">
-                      <Icon className="hidden size-3 shrink-0 sm:block" aria-hidden />
-                      <span className="truncate text-[10px] font-semibold tracking-wide sm:text-xs">
-                        {item.short}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-        </nav>
+                  <span className={styles.stepNumber} aria-hidden="true">
+                    {index < step ? <Check size={15} /> : index + 1}
+                  </span>
+                  <span className={styles.stepLabel}>
+                    <Icon className={styles.stepIcon} aria-hidden="true" />
+                    <span>{item.title}</span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      </nav>
 
-        {step === 0 && (
-          <section className="space-y-5 rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-6">
-            <div>
-              <h2 className="text-lg font-semibold">Property size</h2>
-              <p className="text-sm text-muted-foreground">Choose a service and enter the home size.</p>
+      <div className={styles.layout}>
+        <section className={styles.formPanel} aria-labelledby="wizard-heading">
+          {reference ? (
+            <div className={styles.confirmation}>
+              <span className={styles.confirmationIcon} aria-hidden="true">
+                <Check size={24} />
+              </span>
+              <p className={styles.eyebrow}>Request received</p>
+              <h2 id="wizard-heading" className={styles.panelTitle}>
+                Your estimate is ready for review.
+              </h2>
+              <p className={styles.panelCopy}>
+                Mintbloom Pro will review your details and follow up. This request did not reserve a
+                date or take a payment.
+              </p>
+              <div className={styles.referenceBox}>
+                <span>Request reference</span>
+                <strong>{reference}</strong>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.location.assign('/book')}
+              >
+                Start another estimate
+              </Button>
             </div>
+          ) : (
+            <>
+              <div className={styles.panelHeading}>
+                <div>
+                  <p className={styles.eyebrow}>Step {step + 1} of 3</p>
+                  <h2 id="wizard-heading" className={styles.panelTitle}>
+                    {STEPS[step]?.title ?? 'Property size'}
+                  </h2>
+                </div>
+                <span className={styles.panelIndex}>0{step + 1}</span>
+              </div>
 
-            <div className="grid gap-2 sm:grid-cols-2">
-              {SERVICES.map((s) => {
-                const Icon = s.icon;
-                const selected = form.service === s.id;
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => selectService(s.id)}
-                    className={cn(
-                      'flex min-h-16 items-start gap-3 rounded-xl border px-3 py-3 text-left transition-all',
-                      selected
-                        ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
-                        : 'border-border hover:border-primary/40 hover:bg-muted/40',
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg',
-                        selected ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground',
-                      )}
-                    >
-                      <Icon className="size-4" />
-                    </span>
-                    <span>
-                      <span className="block text-sm font-semibold">{s.label}</span>
-                      {s.hint ? (
-                        <span
-                          className={cn(
-                            'text-xs text-muted-foreground',
-                            !ratesReady && !serviceHints[s.id] ? 'animate-pulse' : null,
-                          )}
-                        >
-                          {s.hint}
-                        </span>
+              {submitError ? (
+                <p className={styles.formAlert} role="alert">
+                  {submitError}
+                </p>
+              ) : null}
+
+              {step === 0 ? (
+                <div className={styles.formBody}>
+                  <fieldset className={styles.serviceFieldset}>
+                    <legend className={styles.fieldLegend}>
+                      What kind of cleaning do you need?
+                    </legend>
+                    <div className={styles.serviceGrid}>
+                      {SERVICE_META.map((service) => {
+                        const Icon = service.icon;
+                        const hint = rateCard?.serviceHints[service.id] ?? service.hint;
+                        const checked = form.service === service.id;
+                        return (
+                          <button
+                            type="button"
+                            key={service.id}
+                            aria-pressed={checked}
+                            onClick={() => chooseService(service.id)}
+                            className={`${styles.serviceCard} ${checked ? styles.serviceSelected : ''}`}
+                          >
+                            <span className={styles.serviceIcon} aria-hidden="true">
+                              <Icon size={18} />
+                            </span>
+                            <span className={styles.serviceCardTop}>
+                              <strong>{service.label}</strong>
+                              <span className={styles.serviceCheck} aria-hidden="true">
+                                {checked ? <Check size={14} /> : null}
+                              </span>
+                            </span>
+                            <span className={styles.serviceHint}>
+                              {hint ?? (rateCardError ? 'Rate unavailable' : 'Loading rate…')}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+
+                  {isQuoteOnlyService(form.service) ? (
+                    <p className={styles.includedNote}>
+                      {form.service === 'commercial'
+                        ? 'A walkthrough will determine the cleaning scope and quote.'
+                        : 'A walkthrough will determine the post-construction scope and quote.'}
+                    </p>
+                  ) : (
+                    <div className={styles.fieldGrid}>
+                      <NumberField
+                        id="square-feet"
+                        label="Interior square footage"
+                        suffix="sq ft"
+                        value={form.squareFeet}
+                        min={1}
+                        max={100_000}
+                        error={fieldErrors.squareFeet}
+                        hint={
+                          rateCard
+                            ? `Required to show a live estimate. The first ${rateCard.includedSqFt.toLocaleString('en-US')} sq. ft. are included in the base.`
+                            : 'Required to show a live estimate.'
+                        }
+                        placeholder="e.g. 1200"
+                        required
+                        onChange={(value) => update('squareFeet', value)}
+                      />
+                      <SelectField
+                        id="bedrooms"
+                        label="Bedrooms"
+                        icon={BedDouble}
+                        value={String(form.bedrooms)}
+                        options={BEDROOM_OPTIONS}
+                        hint="Use 0 for a studio."
+                        error={fieldErrors.bedrooms}
+                        onChange={(value) =>
+                          update('bedrooms', value === '5plus' ? '5plus' : Number(value))
+                        }
+                      />
+                      <NumberField
+                        id="full-baths"
+                        label="Full baths"
+                        icon={Bath}
+                        value={form.fullBaths}
+                        min={0}
+                        max={20}
+                        error={fieldErrors.fullBaths}
+                        required
+                        onChange={(value) => update('fullBaths', value || 0)}
+                      />
+                      <NumberField
+                        id="half-baths"
+                        label="Half baths"
+                        value={form.halfBaths}
+                        min={0}
+                        max={20}
+                        error={fieldErrors.halfBaths}
+                        required
+                        onChange={(value) => update('halfBaths', value || 0)}
+                      />
+                      <NumberField
+                        id="offices"
+                        label="Offices / studies"
+                        value={form.offices}
+                        min={0}
+                        max={20}
+                        error={fieldErrors.offices}
+                        onChange={(value) => update('offices', value || 0)}
+                      />
+                      <NumberField
+                        id="extra-rooms"
+                        label="Extra living rooms"
+                        value={form.extraRooms}
+                        min={0}
+                        max={20}
+                        error={fieldErrors.extraRooms}
+                        onChange={(value) => update('extraRooms', value || 0)}
+                      />
+                      <NumberField
+                        id="kitchens"
+                        label="Kitchens"
+                        value={form.kitchens}
+                        min={1}
+                        max={20}
+                        error={fieldErrors.kitchens}
+                        onChange={(value) => update('kitchens', value || 1)}
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              {step === 1 ? (
+                <div className={styles.formBody}>
+                  {isQuoteOnlyService(form.service) ? (
+                    <p className={styles.includedNote}>
+                      {form.service === 'commercial'
+                        ? 'Commercial cleaning requires a walkthrough. Residential add-ons and recurring discounts do not apply.'
+                        : 'Post-construction work requires a walkthrough and written quote. Residential add-ons do not apply.'}
+                    </p>
+                  ) : (
+                    <>
+                      {form.service === 'standard' ? (
+                        <div className={styles.frequencyBlock}>
+                          <SelectField
+                            id="cadence"
+                            label="Standard cleaning frequency"
+                            value={form.cadence ?? ''}
+                            options={[
+                              ['', 'One-time visit'],
+                              ['weekly', 'Weekly'],
+                              ['biweekly', 'Biweekly'],
+                              ['monthly', 'Monthly'],
+                            ]}
+                            onChange={(value) =>
+                              update('cadence', value ? (value as Cadence) : null)
+                            }
+                          />
+                          {form.cadence ? (
+                            <ToggleField
+                              checked={form.returningRecurring}
+                              label="This is after my first recurring visit"
+                              hint="Your first visit stays at the full rate. Eligible later Standard visits receive the recurring discount."
+                              onChange={(checked) => update('returningRecurring', checked)}
+                            />
+                          ) : null}
+                        </div>
                       ) : null}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-2 sm:col-span-2">
-                <Label htmlFor="sqft">
-                  Interior square footage <span className="text-destructive">*</span>
-                </Label>
-                <div className="relative">
-                  <Ruler className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-primary" />
-                  <Input
-                    id="sqft"
-                    type="number"
-                    min={1}
-                    step={1}
-                    inputMode="numeric"
-                    className="h-11 pl-10"
-                    value={form.squareFeet}
-                    onChange={(e) => setNonNeg('squareFeet', e.target.value)}
-                    placeholder="e.g. 1200"
-                    aria-invalid={errors.squareFeet ? true : undefined}
-                  />
-                </div>
-                {errors.squareFeet ? <p className="text-xs text-destructive">{errors.squareFeet}</p> : null}
-                <p className="text-xs text-muted-foreground">
-                  Required to show a live estimate. Estimates start from the first 600 sq. ft. included in the base.
-                </p>
-              </div>
+                      <div className={styles.fieldGrid}>
+                        <SelectField
+                          id="condition"
+                          label="Current condition"
+                          value={form.condition}
+                          options={[
+                            ['routine', 'Routine upkeep'],
+                            ['heavy', 'Heavy buildup'],
+                            ['severe', 'Severe buildup'],
+                            ['unknown', 'Not sure'],
+                          ]}
+                          onChange={(value) => update('condition', value as Condition)}
+                        />
+                        <SelectField
+                          id="work-level"
+                          label="Work level"
+                          value={form.highWork ? 'high' : 'standard'}
+                          options={[
+                            ['standard', 'Standard home cleaning'],
+                            ['high', 'High-work project'],
+                          ]}
+                          onChange={(value) => update('highWork', value === 'high')}
+                        />
+                      </div>
+                      {form.condition === 'heavy' ? (
+                        <div className={styles.approvalNotice}>
+                          <p>Heavy buildup can add 25% of the core price after approval.</p>
+                          <ToggleField
+                            checked={form.heavyConditionApproved}
+                            label="I approve this allowance for my estimate"
+                            onChange={(checked) => update('heavyConditionApproved', checked)}
+                          />
+                        </div>
+                      ) : null}
 
-              <div className="grid gap-2">
-                <Label htmlFor="beds">
-                  <span className="inline-flex items-center gap-1.5">
-                    <BedDouble className="size-3.5 text-primary" /> Bedrooms
-                  </span>
-                </Label>
-                <select
-                  id="beds"
-                  className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  value={form.bedrooms}
-                  onChange={(e) => set('bedrooms', e.target.value)}
-                >
-                  {['0', '1', '2', '3', '4', '5plus'].map((v) => (
-                    <option key={v} value={v}>
-                      {v === '5plus' ? '5+ (quote)' : v === '0' ? 'Studio (0)' : v}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="fullBaths">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Bath className="size-3.5 text-primary" /> Full baths <span className="text-destructive">*</span>
-                  </span>
-                </Label>
-                <Input
-                  id="fullBaths"
-                  type="number"
-                  min={0}
-                  step={1}
-                  className="h-11"
-                  value={form.fullBaths}
-                  onChange={(e) => setNonNeg('fullBaths', e.target.value)}
-                  aria-invalid={errors.fullBaths ? true : undefined}
-                />
-                {errors.fullBaths ? <p className="text-xs text-destructive">{errors.fullBaths}</p> : null}
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="halfBaths">
-                  Half baths <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="halfBaths"
-                  type="number"
-                  min={0}
-                  step={1}
-                  className="h-11"
-                  value={form.halfBaths}
-                  onChange={(e) => setNonNeg('halfBaths', e.target.value)}
-                  aria-invalid={errors.halfBaths ? true : undefined}
-                />
-                {errors.halfBaths ? <p className="text-xs text-destructive">{errors.halfBaths}</p> : null}
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="offices">Offices / studies</Label>
-                <Input
-                  id="offices"
-                  type="number"
-                  min={0}
-                  step={1}
-                  className="h-11"
-                  value={form.offices}
-                  onChange={(e) => setNonNeg('offices', e.target.value)}
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="living">Extra living rooms</Label>
-                <Input
-                  id="living"
-                  type="number"
-                  min={0}
-                  step={1}
-                  className="h-11"
-                  value={form.extraLivingRooms}
-                  onChange={(e) => setNonNeg('extraLivingRooms', e.target.value)}
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="kitchens">Kitchens</Label>
-                <Input
-                  id="kitchens"
-                  type="number"
-                  min={1}
-                  step={1}
-                  className="h-11"
-                  value={form.kitchens}
-                  onChange={(e) => {
-                    const v = nonNegIntString(e.target.value);
-                    set('kitchens', v === '' || v === '0' ? '1' : v);
-                  }}
-                />
-              </div>
-            </div>
-          </section>
-        )}
-
-        {step === 1 && (
-          <section className="space-y-5 rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-6">
-            <div>
-              <h2 className="text-lg font-semibold">Details &amp; add-ons</h2>
-              <p className="text-sm text-muted-foreground">
-                {isQuoteOnlyService
-                  ? 'Tell us anything that helps with your walkthrough or quote request.'
-                  : 'Optional extras and visit preferences.'}
-              </p>
-            </div>
-
-            {isQuoteOnlyService ? (
-              <p className="rounded-xl bg-muted/50 p-3 text-sm text-muted-foreground">
-                {form.service === 'commercial'
-                  ? 'Commercial cleaning requires an onsite walkthrough. Residential add-ons and recurring discounts do not apply.'
-                  : 'Post-construction / builder work requires a walkthrough and written quote. Residential add-ons do not apply.'}
-              </p>
-            ) : (
-              <>
-                {form.service === 'standard' ? (
-                  <div className="grid gap-2">
-                    <Label htmlFor="cadence">Frequency</Label>
-                    <select
-                      id="cadence"
-                      className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
-                      value={form.cadence}
-                      onChange={(e) => set('cadence', e.target.value as FormState['cadence'])}
-                    >
-                      <option value="one_time">One time</option>
-                      <option value="weekly">Weekly</option>
-                      <option value="biweekly">Biweekly</option>
-                      <option value="monthly">Monthly</option>
-                    </select>
-                    <p className="text-xs text-muted-foreground">
-                      First Standard visit is full price. Weekly 10% / biweekly 7% / monthly 5% apply from
-                      the second completed recurring visit.
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    {form.service === 'deep'
-                      ? 'Deep cleaning is priced as a one-time visit (no recurring discount).'
-                      : form.service === 'move'
-                        ? 'Move-in / Move-out is priced as a one-time visit.'
-                        : 'Airbnb turnover is priced per visit (no automatic recurring discount).'}
-                  </p>
-                )}
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="grid gap-2">
-                    <Label htmlFor="oven">Oven interiors ($60 each)</Label>
-                    <Input
-                      id="oven"
-                      type="number"
-                      min={0}
-                      step={1}
-                      className="h-11"
-                      value={form.oven}
-                      onChange={(e) => setNonNeg('oven', e.target.value)}
-                    />
-                    {form.service === 'move' ? (
-                      <p className="text-xs text-muted-foreground">1 oven included with Move.</p>
-                    ) : null}
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="fridge">Fridge interiors ($45 each)</Label>
-                    <Input
-                      id="fridge"
-                      type="number"
-                      min={0}
-                      step={1}
-                      className="h-11"
-                      value={form.fridge}
-                      onChange={(e) => setNonNeg('fridge', e.target.value)}
-                    />
-                    {form.service === 'move' ? (
-                      <p className="text-xs text-muted-foreground">1 fridge included with Move.</p>
-                    ) : null}
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="cabinets">Cabinet doors/drawers</Label>
-                    <Input
-                      id="cabinets"
-                      type="number"
-                      min={0}
-                      step={1}
-                      className="h-11"
-                      value={form.cabinets}
-                      onChange={(e) => setNonNeg('cabinets', e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      $60 up to 20; then $3 each. Included with Move.
-                    </p>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="windows">Interior window panes ($8, $40 min)</Label>
-                    <Input
-                      id="windows"
-                      type="number"
-                      min={0}
-                      step={1}
-                      className="h-11"
-                      value={form.interiorWindows}
-                      onChange={(e) => setNonNeg('interiorWindows', e.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="tracks">Window tracks ($5 each)</Label>
-                    <Input
-                      id="tracks"
-                      type="number"
-                      min={0}
-                      step={1}
-                      className="h-11"
-                      value={form.windowTracks}
-                      onChange={(e) => setNonNeg('windowTracks', e.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="blinds">Blinds hand-wipe ($8 each)</Label>
-                    <Input
-                      id="blinds"
-                      type="number"
-                      min={0}
-                      step={1}
-                      className="h-11"
-                      value={form.blinds}
-                      onChange={(e) => setNonNeg('blinds', e.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="linens">
-                      {form.service === 'airbnb'
-                        ? 'Bed changes (2 included)'
-                        : 'Linen / bed changes ($12)'}
-                    </Label>
-                    <Input
-                      id="linens"
-                      type="number"
-                      min={0}
-                      max={form.service === 'airbnb' ? 6 : undefined}
-                      step={1}
-                      className="h-11"
-                      value={form.linenChanges}
-                      onChange={(e) => setNonNeg('linenChanges', e.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="laundry">Laundry loads ($30, max 2)</Label>
-                    <Input
-                      id="laundry"
-                      type="number"
-                      min={0}
-                      max={2}
-                      step={1}
-                      className="h-11"
-                      value={form.laundry}
-                      onChange={(e) => setNonNeg('laundry', e.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="dishes">Dish blocks ($25 / 15 min, max 2)</Label>
-                    <Input
-                      id="dishes"
-                      type="number"
-                      min={0}
-                      max={2}
-                      step={1}
-                      className="h-11"
-                      value={form.dishes}
-                      onChange={(e) => setNonNeg('dishes', e.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="garage">Garage sweep ($40 / bay)</Label>
-                    <Input
-                      id="garage"
-                      type="number"
-                      min={0}
-                      step={1}
-                      className="h-11"
-                      value={form.garage}
-                      onChange={(e) => setNonNeg('garage', e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid gap-3 rounded-xl bg-muted/40 p-3">
-                  {form.service === 'deep' || form.service === 'move' ? (
-                    <p className="text-sm text-muted-foreground">
-                      Hand-wiped baseboards:{' '}
-                      <span className="font-medium text-foreground">Included</span>
-                    </p>
-                  ) : (
-                    <label className="flex items-center gap-3 text-sm">
-                      <input
-                        type="checkbox"
-                        className="size-4 accent-[var(--primary)]"
-                        checked={form.baseboards}
-                        onChange={(e) => set('baseboards', e.target.checked)}
-                      />
-                      Hand-wiped baseboards ($40 per started 1,000 sq. ft.)
-                    </label>
-                  )}
-                  {(
-                    [
-                      ['petHairNeeded', 'Extra pet-hair work ($35)', form.petHairNeeded],
-                      [
-                        'rushRequested',
-                        'Rush request ($50, pending confirmation)',
-                        form.rushRequested,
-                      ],
-                      [
-                        'highWorkRequested',
-                        'High fans / elevated surfaces (quote review)',
-                        form.highWorkRequested,
-                      ],
-                      [
-                        'severeOrUnknownCondition',
-                        'Severe or unknown condition (quote review)',
-                        form.severeOrUnknownCondition,
-                      ],
-                    ] as const
-                  ).map(([key, label, checked]) => (
-                    <label key={key} className="flex items-center gap-3 text-sm">
-                      <input
-                        type="checkbox"
-                        className="size-4 accent-[var(--primary)]"
-                        checked={checked}
-                        onChange={(e) => set(key, e.target.checked)}
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
-
-            <div className="grid gap-2">
-              <Label htmlFor="notes">Notes (optional)</Label>
-              <Textarea
-                id="notes"
-                rows={3}
-                value={form.notes}
-                onChange={(e) => set('notes', e.target.value)}
-              />
-            </div>
-          </section>
-        )}
-
-        {step === 2 && (
-          <section className="space-y-5 rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-6">
-            <div>
-              <h2 className="text-lg font-semibold">Your info &amp; address</h2>
-              <p className="text-sm text-muted-foreground">
-                Where should we clean, and how do we reach you?
-              </p>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-2 sm:col-span-2">
-                <Label htmlFor="name">
-                  Full name <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="name"
-                  className="h-11"
-                  value={form.fullName}
-                  onChange={(e) => set('fullName', e.target.value)}
-                  aria-invalid={errors.fullName ? true : undefined}
-                />
-                {errors.fullName ? <p className="text-xs text-destructive">{errors.fullName}</p> : null}
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="email">
-                  Email <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="email"
-                  type="email"
-                  className="h-11"
-                  value={form.email}
-                  onChange={(e) => set('email', e.target.value)}
-                  aria-invalid={errors.email ? true : undefined}
-                />
-                {errors.email ? <p className="text-xs text-destructive">{errors.email}</p> : null}
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="phone">
-                  Phone <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="phone"
-                  type="tel"
-                  className="h-11"
-                  value={form.phone}
-                  onChange={(e) => set('phone', e.target.value)}
-                  aria-invalid={errors.phone ? true : undefined}
-                />
-                {errors.phone ? <p className="text-xs text-destructive">{errors.phone}</p> : null}
-              </div>
-            </div>
-
-            <AddressAutocomplete
-              street={form.street}
-              required
-              error={errors.street}
-              onStreetChange={(value) => set('street', value)}
-              onResolved={(address) => {
-                setForm((prev) => ({
-                  ...prev,
-                  street: address.street || prev.street,
-                  city: address.city || prev.city,
-                  state: address.state || prev.state,
-                  zip: address.zip || prev.zip,
-                }));
-                setErrors((prev) => {
-                  const next = { ...prev };
-                  delete next.street;
-                  delete next.city;
-                  delete next.state;
-                  delete next.zip;
-                  return next;
-                });
-              }}
-            />
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="unit">Unit / apt</Label>
-                <Input id="unit" className="h-11" value={form.unit} onChange={(e) => set('unit', e.target.value)} />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="zip">
-                  ZIP <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="zip"
-                  className="h-11"
-                  value={form.zip}
-                  onChange={(e) => set('zip', e.target.value)}
-                  aria-invalid={errors.zip ? true : undefined}
-                />
-                {errors.zip ? <p className="text-xs text-destructive">{errors.zip}</p> : null}
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="city">
-                  City <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="city"
-                  className="h-11"
-                  value={form.city}
-                  onChange={(e) => set('city', e.target.value)}
-                  aria-invalid={errors.city ? true : undefined}
-                />
-                {errors.city ? <p className="text-xs text-destructive">{errors.city}</p> : null}
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="state">
-                  State <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="state"
-                  className="h-11"
-                  value={form.state}
-                  onChange={(e) => set('state', e.target.value)}
-                  aria-invalid={errors.state ? true : undefined}
-                />
-                {errors.state ? <p className="text-xs text-destructive">{errors.state}</p> : null}
-              </div>
-              <div className="grid gap-2 sm:col-span-2">
-                <Label htmlFor="date">Preferred date (optional)</Label>
-                <Input
-                  id="date"
-                  type="date"
-                  min={todayIsoLocal()}
-                  className="h-11 max-w-full"
-                  value={form.preferredDate}
-                  onChange={(e) => set('preferredDate', e.target.value)}
-                  aria-invalid={errors.preferredDate ? true : undefined}
-                />
-                {errors.preferredDate ? (
-                  <p className="text-xs text-destructive">{errors.preferredDate}</p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Choose today or a future date (you can type YYYY-MM-DD).
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <p className="rounded-xl bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground">
-              Your estimate is based on the property details and services selected. We confirm size,
-              condition, access and availability before confirming your booking.
-            </p>
-          </section>
-        )}
-
-        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
-          {step > 0 ? (
-            <Button type="button" variant="outline" className="min-h-11" onClick={goBack}>
-              <ArrowLeft className="size-4" />
-              Back
-            </Button>
-          ) : (
-            <span />
-          )}
-          {step < STEPS.length - 1 ? (
-            <Button type="button" className="min-h-11" onClick={goNext}>
-              Continue
-              <ArrowRight className="size-4" />
-            </Button>
-          ) : (
-            <Button type="button" className="min-h-11" onClick={submitRequest} disabled={submitting}>
-              {submitting ? (
-                <>
-                  <LoaderCircle className="size-4 animate-spin" />
-                  Submitting…
-                </>
-              ) : isQuote ? (
-                form.service === 'commercial' ? (
-                  'Request a Walkthrough'
-                ) : (
-                  'Request a Quote'
-                )
-              ) : (
-                'Submit estimate request'
-              )}
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Estimate notice-board panel — light, pinned, no shadow */}
-      <aside className="lg:sticky lg:top-24 lg:self-start">
-        <div className="relative rounded-sm border border-amber-200/80 bg-[#f7f1e3] px-5 pt-8 pb-5">
-          {/* Pin */}
-          <div className="absolute top-2 left-1/2 -translate-x-1/2" aria-hidden>
-            <span className="relative mx-auto flex size-7 items-center justify-center">
-              <span className="absolute size-3 rounded-full bg-red-500 ring-2 ring-red-700/30" />
-              <Pin className="relative size-5 rotate-45 text-red-600" strokeWidth={2.25} />
-            </span>
-          </div>
-
-          <div className="space-y-4">
-            <div className="border-b border-amber-900/10 pb-3 text-center">
-              <p className="text-xs font-bold tracking-[0.16em] text-primary uppercase">Your estimate</p>
-              <p className="mt-1 text-sm text-zinc-600">Price updates with your selections</p>
-              {rateCardVersion != null || estimate?.rateCardVersion != null ? (
-                <p className="mt-0.5 text-[11px] text-zinc-500">
-                  Rate card v{estimate?.rateCardVersion ?? rateCardVersion}
-                </p>
-              ) : null}
-            </div>
-
-            {/* 1) Estimate cost total first — never show a stale total while recalculating */}
-            <div className="rounded-sm border border-amber-900/10 bg-white/80 px-3 py-4 text-center">
-              {estimating || (!hasSqft && !isQuoteOnlyService) ? (
-                <div className="flex flex-col items-center justify-center gap-2 text-sm text-zinc-600">
-                  {estimating ? (
-                    <>
-                      <LoaderCircle className="size-4 animate-spin text-primary" />
-                      Calculating…
-                    </>
-                  ) : (
-                    <>
-                      <p className="font-serif text-3xl font-semibold tracking-tight text-zinc-400">—</p>
-                      <p>Enter square footage to see your estimate.</p>
+                      <fieldset className={styles.addOnFieldset}>
+                        <legend className={styles.fieldLegend}>Add-ons and extra rooms</legend>
+                        <div className={styles.fieldGrid}>
+                          {DETAIL_COUNTS.map(([key, label, max, hint]) => (
+                            <NumberField
+                              key={key}
+                              id={key}
+                              label={label}
+                              value={form[key] as number}
+                              min={0}
+                              max={max}
+                              error={fieldErrors[key]}
+                              hint={
+                                form.service === 'move' && key === 'ovenCavities'
+                                  ? '1 oven included with Move.'
+                                  : form.service === 'move' && key === 'refrigeratorCount'
+                                    ? '1 fridge included with Move.'
+                                    : hint
+                              }
+                              onChange={(value) => update(key, value || 0)}
+                            />
+                          ))}
+                        </div>
+                        <div className={styles.toggleGrid}>
+                          {form.service === 'standard' || form.service === 'airbnb' ? (
+                            <ToggleField
+                              checked={form.baseboards}
+                              label="Hand-wiped baseboards ($40 per started 1,000 sq. ft.)"
+                              onChange={(checked) => update('baseboards', checked)}
+                            />
+                          ) : null}
+                          {form.service === 'deep' || form.service === 'move' ? (
+                            <p className={styles.includedNote}>
+                              Hand-wiped baseboards are included.
+                            </p>
+                          ) : null}
+                          <ToggleField
+                            checked={form.petHair}
+                            label="Extra pet-hair work ($35)"
+                            onChange={(checked) => update('petHair', checked)}
+                          />
+                          <ToggleField
+                            checked={form.rush}
+                            label="Rush request ($50, pending confirmation)"
+                            onChange={(checked) => update('rush', checked)}
+                          />
+                        </div>
+                        {form.service === 'airbnb' ? (
+                          <p className={styles.includedNote}>
+                            Airbnb turnover includes linen changes for two beds; additional beds are
+                            priced separately.
+                          </p>
+                        ) : null}
+                      </fieldset>
                     </>
                   )}
                 </div>
-              ) : estimate?.status === 'priced' ? (
-                <>
-                  <p className="font-serif text-4xl font-semibold tracking-tight text-primary">
-                    {formatUsdFromCents(estimate.totalCents)}
-                  </p>
-                  <p className="mt-1 text-sm text-zinc-600">
-                    Est. total incl. tax
-                    {estimate.taxRateBps != null
-                      ? ` (${(estimate.taxRateBps / 100).toFixed(2)}%)`
-                      : ''}
-                  </p>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-left text-sm">
-                    <div className="rounded-sm border border-amber-900/10 bg-[#fffdf8] px-2.5 py-1.5">
-                      <p className="text-xs text-zinc-500">Pre-tax</p>
-                      <p className="font-semibold text-zinc-800">
-                        {formatUsdFromCents(estimate.subtotalCents)}
-                      </p>
-                    </div>
-                    <div className="rounded-sm border border-amber-900/10 bg-[#fffdf8] px-2.5 py-1.5">
-                      <p className="text-xs text-zinc-500">Tax</p>
-                      <p className="font-semibold text-zinc-800">
-                        {formatUsdFromCents(estimate.taxCents)}
-                      </p>
-                    </div>
-                  </div>
-                </>
-              ) : estimate?.status === 'quote_required' ? (
-                <>
-                  <p className="font-serif text-3xl font-semibold tracking-tight text-zinc-800">
-                    Custom quote
-                  </p>
-                  <p className="mt-1 text-sm text-zinc-600">We will confirm pricing after review.</p>
-                </>
-              ) : (
-                <>
-                  <p className="font-serif text-3xl font-semibold tracking-tight text-zinc-400">—</p>
-                  <p className="mt-1 text-sm text-zinc-600">Select options to see your total.</p>
-                </>
-              )}
-            </div>
-
-            {/* 2) Note + selected details */}
-            <div className="rounded-sm border border-dashed border-amber-900/20 bg-[#fffdf8] px-3 py-2.5">
-              <p className="text-[11px] font-bold tracking-wide text-amber-900/70 uppercase">Note</p>
-              <p className="mt-1 text-sm leading-relaxed text-zinc-700">
-                No payment online — submit a request and we confirm the final price with you.
-              </p>
-              {form.cadence !== 'one_time' && form.service === 'standard' ? (
-                <p className="mt-2 text-xs text-zinc-500">
-                  Showing first-visit price. {cadenceDisplay(form.cadence)} discount applies from visit
-                  2.
-                </p>
-              ) : null}
-              {!estimating && estimate?.reasons?.length ? (
-                <ul className="mt-2 space-y-1 text-xs text-amber-900/80">
-                  {estimate.reasons.map((reason) => (
-                    <li key={reason}>• {reason}</li>
-                  ))}
-                </ul>
               ) : null}
 
-              <div className="mt-3 border-t border-amber-900/10 pt-2.5">
-                <p className="text-[11px] font-bold tracking-wide text-amber-900/70 uppercase">
-                  Your selections
-                </p>
-                <dl className="mt-2 space-y-1.5 text-sm">
-                  {selectionDetails.map((row) => (
-                    <div key={row.label} className="flex justify-between gap-3">
-                      <dt className="shrink-0 text-zinc-500">{row.label}</dt>
-                      <dd className="text-right font-medium break-words text-zinc-800">{row.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </div>
-            </div>
-
-            {!estimating && estimate?.status === 'priced' && estimate.lines.length > 0 ? (
-              <div className="rounded-sm border border-amber-900/10 bg-white/60 px-3 py-2 text-sm">
-                <p className="font-medium text-zinc-800">Itemized breakdown</p>
-                <ul className="mt-2 max-h-52 space-y-1.5 overflow-auto text-zinc-600">
-                  {estimate.lines.map((line) => (
-                    <li
-                      key={line.id}
-                      className="flex items-start justify-between gap-3 border-b border-amber-900/10 pb-1.5 last:border-0"
-                    >
-                      <span className="min-w-0 flex-1 break-words">{line.label}</span>
-                      <span className="shrink-0 font-medium text-zinc-800">
-                        {formatUsdFromCents(line.amountCents)}
+              {step === 2 ? (
+                <div className={styles.formBody}>
+                  <p className={styles.panelCopy}>
+                    We’ll use these details to review the request and follow up. A plain street
+                    address is fine; no map lookup is required.
+                  </p>
+                  <div className={styles.fieldGrid}>
+                    <TextField
+                      id="full-name"
+                      label="Full name"
+                      value={form.fullName}
+                      required
+                      error={fieldErrors.fullName}
+                      onChange={(value) => update('fullName', value)}
+                    />
+                    <TextField
+                      id="email"
+                      label="Email"
+                      type="email"
+                      value={form.email}
+                      required
+                      error={fieldErrors.email}
+                      onChange={(value) => update('email', value)}
+                    />
+                    <TextField
+                      id="phone"
+                      label="Phone"
+                      type="tel"
+                      value={form.phone}
+                      required
+                      error={fieldErrors.phone}
+                      hint="Include your area code."
+                      onChange={(value) => update('phone', value)}
+                    />
+                    <TextField
+                      id="preferred-date"
+                      label="Preferred date"
+                      type="date"
+                      min={today}
+                      value={form.preferredDate}
+                      error={fieldErrors.preferredDate}
+                      hint="A preference only; we’ll confirm timing after review."
+                      onChange={(value) => update('preferredDate', value)}
+                    />
+                    <AddressAutocomplete
+                      street={form.streetAddress}
+                      required
+                      error={fieldErrors.streetAddress}
+                      onStreetChange={(value) => update('streetAddress', value)}
+                      onResolved={(address) =>
+                        setForm((current) => ({
+                          ...current,
+                          streetAddress: address.street || current.streetAddress,
+                          city: address.city || current.city,
+                          state: address.state || current.state,
+                          zip: address.zip || current.zip,
+                        }))
+                      }
+                    />
+                    <TextField
+                      id="unit"
+                      label="Unit / apt"
+                      value={form.unit}
+                      error={fieldErrors.unit}
+                      onChange={(value) => update('unit', value)}
+                    />
+                    <TextField
+                      id="city"
+                      label="City"
+                      value={form.city}
+                      required
+                      error={fieldErrors.city}
+                      onChange={(value) => update('city', value)}
+                    />
+                    <TextField
+                      id="state"
+                      label="State"
+                      value={form.state}
+                      maxLength={2}
+                      required
+                      error={fieldErrors.state}
+                      onChange={(value) => update('state', value.toUpperCase())}
+                    />
+                    <TextField
+                      id="zip"
+                      label="ZIP code"
+                      value={form.zip}
+                      required
+                      error={fieldErrors.zip}
+                      onChange={(value) => update('zip', value)}
+                    />
+                    <label className={`${styles.field} ${styles.fullWidth}`} htmlFor="notes">
+                      <span className={styles.fieldLabel}>
+                        Anything else we should know?{' '}
+                        <span className={styles.optional}>(optional)</span>
                       </span>
-                    </li>
-                  ))}
-                </ul>
+                      <textarea
+                        id="notes"
+                        value={form.notes}
+                        maxLength={4000}
+                        rows={4}
+                        className={styles.control}
+                        onChange={(event) => update('notes', event.target.value)}
+                      />
+                      <span className={styles.fieldHint}>
+                        Share access details or anything that will help us review the scope.
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className={styles.formFooter}>
+                {step > 0 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={previousStep}
+                    className={styles.backButton}
+                  >
+                    <ArrowLeft size={16} aria-hidden="true" /> Back
+                  </Button>
+                ) : (
+                  <span />
+                )}
+                {step < 2 ? (
+                  <Button type="button" onClick={nextStep} className={styles.nextButton}>
+                    {step === 0 ? 'Continue to details' : 'Continue to your address'}
+                    <ArrowRight size={16} aria-hidden="true" />
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    onClick={() => void submitRequest()}
+                    disabled={submitting || estimateLoading || estimateError || !estimate}
+                    className={styles.nextButton}
+                  >
+                    {submitting ? (
+                      <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+                    ) : null}
+                    {submitting
+                      ? 'Sending request…'
+                      : form.service === 'commercial'
+                        ? 'Request Walkthrough'
+                        : form.service === 'postConstruction' ||
+                            estimate?.status === 'quote_required'
+                          ? 'Request Quote'
+                          : 'Send estimate request'}
+                  </Button>
+                )}
               </div>
+            </>
+          )}
+        </section>
+
+        <aside className={styles.noticeBoard} aria-label="Estimate summary">
+          <span className={styles.pin} aria-hidden="true">
+            <Pin size={22} fill="currentColor" />
+          </span>
+          <div className={styles.boardTotal}>
+            <p className={styles.boardEyebrow}>Your estimate</p>
+            <strong className={styles.totalValue} aria-live="polite">
+              {isQuoteOnlyService(form.service)
+                ? quoteLabel
+                : form.squareFeet === ''
+                  ? '—'
+                  : estimateLoading
+                    ? 'Updating…'
+                    : (displayTotal ?? quoteLabel)}
+            </strong>
+            <p className={styles.totalContext}>Price updates with your selections</p>
+            <p className={styles.boardVersion}>Rate card v{activeRateCardVersion}</p>
+          </div>
+          <div className={styles.boardNote}>
+            <h3>Note</h3>
+            <p>
+              No payment online — submit a request and Mintbloom Pro will confirm the final price
+              with you.
+            </p>
+            {estimate?.reason ? <p>{estimate.reason}</p> : null}
+            {form.service === 'standard' && form.cadence && form.returningRecurring ? (
+              <p>
+                Showing the eligible {form.cadence} price. The first recurring visit is charged at
+                the full rate.
+              </p>
             ) : null}
           </div>
-        </div>
-
-        {/* Mobile sticky total — flat, no shadow */}
-        {!estimating && estimate?.status === 'priced' ? (
-          <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-[#f7f1e3] p-3 lg:hidden">
-            <div className="mx-auto flex max-w-lg items-center justify-between gap-3">
-              <div>
-                <p className="text-xs text-zinc-500">Estimated total</p>
-                <p className="text-lg font-semibold text-primary">
-                  {formatUsdFromCents(estimate.totalCents)}
-                </p>
-              </div>
-              {step < STEPS.length - 1 ? (
-                <Button type="button" className="min-h-11" onClick={goNext}>
-                  Continue
-                </Button>
-              ) : (
-                <Button type="button" className="min-h-11" onClick={submitRequest} disabled={submitting}>
-                  Submit
-                </Button>
-              )}
-            </div>
+          <div className={styles.boardSelections}>
+            <h3>Your selections</h3>
+            <ul>
+              {selectionDetails.map((row) => (
+                <li key={row.label}>
+                  <span>{row.label}</span>
+                  <strong>{row.value}</strong>
+                </li>
+              ))}
+              <li>
+                <span>Market</span>
+                <strong>
+                  {form.city || 'Not entered'}, {form.state || '—'}
+                </strong>
+              </li>
+            </ul>
           </div>
-        ) : null}
-      </aside>
+          <div className={styles.boardBreakdown}>
+            <h3>Itemized breakdown</h3>
+            {estimateError ? (
+              <output className={styles.boardEmpty} aria-live="polite">
+                Live pricing is unavailable. Please retry before sending your request.
+              </output>
+            ) : estimateLoading ? (
+              <p className={styles.boardEmpty}>Updating from the active rate card…</p>
+            ) : form.squareFeet === '' && !isQuoteOnlyService(form.service) ? (
+              <p className={styles.boardEmpty}>
+                Your itemized estimate appears after you enter the home size.
+              </p>
+            ) : estimate?.status === 'quote_required' ? (
+              <>
+                <p className={styles.boardEmpty}>
+                  A team member will prepare the itemized quote after reviewing this scope.
+                </p>
+                {estimate.lines.length ? (
+                  <ul className={styles.lineItems}>
+                    {estimate.lines.map((line) => (
+                      <li key={line.id}>
+                        <span>
+                          {line.label}
+                          {line.pending ? <em>Pending</em> : null}
+                        </span>
+                        <strong>{formatUsdFromCents(line.amountCents)}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
+            ) : estimate?.lines.length ? (
+              <ul className={styles.lineItems}>
+                {estimate.lines.map((line) => (
+                  <li key={line.id}>
+                    <span>
+                      {line.label}
+                      {line.included ? <em>Included</em> : null}
+                      {line.pending ? <em>Pending</em> : null}
+                    </span>
+                    <strong data-total={line.kind === 'total' ? 'true' : undefined}>
+                      {line.kind === 'discount' ? '−' : ''}
+                      {formatUsdFromCents(line.amountCents)}
+                    </strong>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className={styles.boardEmpty}>Add your home details to build the breakdown.</p>
+            )}
+            {estimateError ? (
+              <button
+                className={styles.retryLink}
+                type="button"
+                onClick={() => setForm((current) => ({ ...current }))}
+              >
+                Retry estimate
+              </button>
+            ) : null}
+          </div>
+        </aside>
+      </div>
+      {!estimateLoading && estimate?.status === 'priced' && displayTotal ? (
+        <output className={styles.mobileEstimate} aria-label="Current estimate">
+          <div className={styles.mobileEstimateTotal}>
+            <span>Estimated total</span>
+            <strong>{displayTotal}</strong>
+          </div>
+          <Button
+            type="button"
+            onClick={() => (step < 2 ? nextStep() : void submitRequest())}
+            disabled={step === 2 && (submitting || estimateLoading || estimateError)}
+          >
+            {step < 2 ? 'Continue' : submitting ? 'Sending…' : 'Send request'}
+          </Button>
+        </output>
+      ) : null}
     </div>
+  );
+}
+
+function NumberField({
+  id,
+  label,
+  value,
+  min,
+  max,
+  error,
+  hint,
+  suffix,
+  placeholder,
+  required = false,
+  icon: Icon,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: number | '';
+  min: number;
+  max: number;
+  error?: string;
+  hint?: string;
+  suffix?: string;
+  placeholder?: string;
+  required?: boolean;
+  icon?: typeof Home;
+  onChange: (value: number | '') => void;
+}) {
+  return (
+    <label className={styles.field} htmlFor={id}>
+      <span className={styles.fieldLabel}>
+        {Icon ? <Icon className={styles.fieldIcon} aria-hidden="true" /> : null}
+        {label}
+        {required ? <span className={styles.requiredMark}>*</span> : null}
+      </span>
+      <span className={styles.inputWrap}>
+        <input
+          id={id}
+          type="number"
+          min={min}
+          max={max}
+          step={1}
+          inputMode="numeric"
+          required={required}
+          placeholder={placeholder}
+          value={value}
+          aria-invalid={!!error}
+          aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
+          className={`${styles.control} ${suffix ? styles.withSuffix : ''}`}
+          onChange={(event) => {
+            const raw = event.target.value;
+            if (raw === '') {
+              onChange('');
+              return;
+            }
+            const parsed = Number(raw);
+            onChange(
+              Number.isFinite(parsed) ? Math.max(min, Math.min(max, Math.trunc(parsed))) : '',
+            );
+          }}
+        />
+        {suffix ? <span className={styles.inputSuffix}>{suffix}</span> : null}
+      </span>
+      {error ? (
+        <span id={`${id}-error`} className={styles.fieldError}>
+          {error}
+        </span>
+      ) : null}
+      {!error && hint ? (
+        <span id={`${id}-hint`} className={styles.fieldHint}>
+          {hint}
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
+function TextField({
+  id,
+  label,
+  value,
+  type = 'text',
+  min,
+  maxLength,
+  error,
+  hint,
+  placeholder,
+  required = false,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  type?: 'text' | 'email' | 'tel' | 'date';
+  min?: string;
+  maxLength?: number;
+  error?: string;
+  hint?: string;
+  placeholder?: string;
+  required?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className={styles.field} htmlFor={id}>
+      <span className={styles.fieldLabel}>
+        {label}
+        {required ? <span className={styles.requiredMark}>*</span> : null}
+      </span>
+      <input
+        id={id}
+        type={type}
+        min={min}
+        maxLength={maxLength}
+        placeholder={placeholder}
+        required={required}
+        value={value}
+        aria-invalid={!!error}
+        aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
+        className={styles.control}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {error ? (
+        <span id={`${id}-error`} className={styles.fieldError}>
+          {error}
+        </span>
+      ) : null}
+      {!error && hint ? (
+        <span id={`${id}-hint`} className={styles.fieldHint}>
+          {hint}
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
+function SelectField({
+  id,
+  label,
+  value,
+  options,
+  error,
+  hint,
+  required = false,
+  icon: Icon,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  options: [string, string][];
+  error?: string;
+  hint?: string;
+  required?: boolean;
+  icon?: typeof Home;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className={styles.field} htmlFor={id}>
+      <span className={styles.fieldLabel}>
+        {Icon ? <Icon className={styles.fieldIcon} aria-hidden="true" /> : null}
+        {label}
+        {required ? <span className={styles.requiredMark}>*</span> : null}
+      </span>
+      <select
+        id={id}
+        value={value}
+        required={required}
+        aria-invalid={!!error}
+        aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
+        className={styles.control}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.map(([optionValue, optionLabel]) => (
+          <option key={optionValue || 'empty'} value={optionValue}>
+            {optionLabel}
+          </option>
+        ))}
+      </select>
+      {error ? (
+        <span id={`${id}-error`} className={styles.fieldError}>
+          {error}
+        </span>
+      ) : null}
+      {!error && hint ? (
+        <span id={`${id}-hint`} className={styles.fieldHint}>
+          {hint}
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
+function ToggleField({
+  checked,
+  label,
+  hint,
+  onChange,
+}: {
+  checked: boolean;
+  label: string;
+  hint?: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className={styles.toggle}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className={styles.toggleMark} aria-hidden="true">
+        {checked ? <Check size={13} /> : null}
+      </span>
+      <span className={styles.toggleCopy}>
+        <span>{label}</span>
+        {hint ? <small>{hint}</small> : null}
+      </span>
+    </label>
   );
 }

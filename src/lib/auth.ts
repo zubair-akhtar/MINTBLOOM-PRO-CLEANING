@@ -1,4 +1,4 @@
-// @polsia:framework-owned - DO NOT EDIT. Code installed by polsia/modules/better-auth@0.9.0. Drift = commit rejected.
+// @polsia:framework-owned - DO NOT EDIT. Code installed by polsia/modules/better-auth@0.10.0. Drift = commit rejected.
 // Protected core (db/secret/baseURL, admin plugin, multi-host trustedOrigins) + owner-admin grant,
 // composed with the app's own databaseHooks. Configure auth in @/lib/auth-config (user-owned).
 
@@ -38,6 +38,14 @@ export const auth = betterAuth({
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
   trustedOrigins,
+  // Signup must open a session: paywalls and protected pages right after signup
+  // depend on it. Gate sensitive actions on user.emailVerified instead.
+  emailAndPassword: {
+    ...authConfig.emailAndPassword,
+    enabled: authConfig.emailAndPassword?.enabled ?? false,
+    requireEmailVerification: false,
+    autoSignIn: true,
+  },
   emailVerification: {
     sendOnSignUp: true,
     sendOnSignIn: false,

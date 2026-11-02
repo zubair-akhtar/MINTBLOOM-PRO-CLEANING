@@ -22,7 +22,7 @@ export default function AdminPage() {
           className="text-sm font-medium text-primary underline underline-offset-4"
           href="/admin/calculator"
         >
-          Calculator settings (rates &amp; tax)
+          Edit calculator rates
         </Link>
       </section>
     </div>

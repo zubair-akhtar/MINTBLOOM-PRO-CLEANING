@@ -39,6 +39,44 @@ The canonical template id is `polsia-next-v2`; the GitHub repository is
 - Unit tests covering the ownership map, CSP posture, env validation, and the
   example data contract.
 
+## Mintbloom pricing maintenance
+
+The deployed startup command in `polsia.toml` applies the checked-in Prisma
+schema with `prisma db push` before the app starts. This creates or syncs
+`PricingRateCardVersion`; the pricing model is part of the schema-only deploy
+path, so do not add `migrate deploy` to startup.
+
+For a local or disposable database, provide `DATABASE_URL`, apply the schema,
+then initialize missing reference data and the initial rate card:
+
+```bash
+npx prisma db push
+node scripts/seed-pricing.mjs
+```
+
+The initializer inserts the market rows and version 1 only when missing. It
+does not update an existing market or replace an existing rate-card version.
+It prints the market count, rate-card version count, current highest version,
+and tax-market count; running it twice should leave those counts and version
+unchanged.
+
+To verify live estimate responses, start the app against the same database and
+run:
+
+```bash
+node scripts/verify-pricing-pdf.mjs
+```
+
+The script calls `POST /api/pricing/estimate` and checks the v3 sample amounts,
+Move included/extras, quote-only Commercial and Post-construction gates, and
+`Cache-Control: no-store`. It defaults to `http://localhost:3000`; set
+`VERIFY_URL` to the running app origin when needed. A successful run prints a
+`PASS` line per assertion and exits zero. The app must have its normal build and
+runtime environment, including `DATABASE_URL` and the Better Auth variables
+required by this checkout. Google Places search additionally requires
+`GOOGLE_MAPS_API_KEY`; without it, `/book` keeps the editable street-address
+field.
+
 ## What Is Not Included
 
 - No auth, billing, email, analytics, dashboards, or other product modules.

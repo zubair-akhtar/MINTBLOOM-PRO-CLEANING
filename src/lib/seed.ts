@@ -20,12 +20,7 @@
 // imports it.
 export async function seed(): Promise<void> {
   const { prisma } = await import('@/lib/db');
-  const { DEFAULT_PRICING_SETTINGS, LAUNCH_PRICING_LABEL } = await import(
-    '@/lib/business/pricing/defaults'
-  );
-
-  /** Launch markets with automated residential pricing + Lubbock-area tax default. */
-  const launchPricingCities = new Set(['Lubbock', 'New Deal', 'Wolfforth', 'Plainview']);
+  const { defaultPricingSettings } = await import('@/lib/business/pricing/defaults');
   const markets = [
     { name: 'Lubbock', city: 'Lubbock', state: 'TX' },
     { name: 'New Deal', city: 'New Deal', state: 'TX' },
@@ -37,85 +32,12 @@ export async function seed(): Promise<void> {
   ];
 
   await prisma.$transaction(async (tx) => {
-    const legacyMarket = await tx.serviceMarket.findUnique({
-      where: { city_state: { city: 'Plains', state: 'TX' } },
+    await tx.pricingRateCardVersion.createMany({
+      data: [{ version: 1, settings: defaultPricingSettings }],
+      skipDuplicates: true,
     });
-    const existingPlainviewMarket = await tx.serviceMarket.findUnique({
-      where: { city_state: { city: 'Plainview', state: 'TX' } },
-    });
-
-    let plainviewMarketId: string;
-    if (legacyMarket && existingPlainviewMarket) {
-      await tx.jobOpening.updateMany({
-        where: { marketId: legacyMarket.id },
-        data: { marketId: existingPlainviewMarket.id, city: 'Plainview', state: 'TX' },
-      });
-      await tx.jobApplication.updateMany({
-        where: { marketId: legacyMarket.id },
-        data: { marketId: existingPlainviewMarket.id },
-      });
-      await tx.serviceMarket.update({
-        where: { id: legacyMarket.id },
-        data: { isActive: false },
-      });
-      plainviewMarketId = existingPlainviewMarket.id;
-    } else if (legacyMarket) {
-      // Preserve the legacy market ID and its relations when no duplicate exists.
-      plainviewMarketId = legacyMarket.id;
-    } else {
-      const plainviewMarket = await tx.serviceMarket.upsert({
-        where: { city_state: { city: 'Plainview', state: 'TX' } },
-        create: { name: 'Plainview', city: 'Plainview', state: 'TX' },
-        update: { name: 'Plainview', isActive: true },
-      });
-      plainviewMarketId = plainviewMarket.id;
-    }
-
-    await tx.serviceMarket.update({
-      where: { id: plainviewMarketId },
-      data: {
-        name: 'Plainview',
-        city: 'Plainview',
-        state: 'TX',
-        isActive: true,
-        pricingEnabled: true,
-        combinedTaxRateBps: 825,
-      },
-    });
-    await tx.jobOpening.updateMany({
-      where: { marketId: plainviewMarketId },
-      data: { city: 'Plainview', state: 'TX' },
-    });
-
-    for (const market of markets) {
-      if (market.city === 'Plainview' && market.state === 'TX') continue;
-      const pricingEnabled = launchPricingCities.has(market.city);
-      await tx.serviceMarket.upsert({
-        where: { city_state: { city: market.city, state: market.state } },
-        create: {
-          ...market,
-          pricingEnabled,
-          combinedTaxRateBps: pricingEnabled ? 825 : null,
-        },
-        update: {
-          name: market.name,
-          isActive: true,
-          pricingEnabled,
-          combinedTaxRateBps: pricingEnabled ? 825 : null,
-        },
-      });
-    }
-
-    const activeCard = await tx.pricingRateCard.findFirst({ where: { isActive: true } });
-    if (!activeCard) {
-      await tx.pricingRateCard.create({
-        data: {
-          version: 1,
-          label: LAUNCH_PRICING_LABEL,
-          isActive: true,
-          settings: DEFAULT_PRICING_SETTINGS as object,
-        },
-      });
-    }
+    // Reference data is insert-only: deployments must not overwrite market
+    // names, active flags, or job locations that an operator has already set.
+    await tx.serviceMarket.createMany({ data: markets, skipDuplicates: true });
   });
 }

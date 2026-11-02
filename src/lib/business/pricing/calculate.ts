@@ -1,523 +1,368 @@
-// @polsia:user-owned — Mintbloom v3 residential estimate engine.
+// @polsia:user-owned — quote-only Mintbloom v3 pricing calculation.
 
-import { roundCents } from '@/lib/business/pricing/money';
-import type {
-  CalculatorServiceId,
-  EstimateInput,
-  EstimateLine,
-  EstimateResult,
-  PricedServiceId,
-  PricingSettings,
-} from '@/lib/business/pricing/types';
+import { formatUsdFromCents, roundHalfUp } from '@/lib/business/pricing/money';
+import type { EstimateInput, EstimateResponse, PricingSettings } from '@/lib/contracts/pricing';
 
-const PRICED: ReadonlySet<string> = new Set(['standard', 'deep', 'move', 'airbnb']);
+type Line = EstimateResponse['lines'][number];
+type PricedService = 'standard' | 'deep' | 'move' | 'airbnb';
 
-export function isPricedService(service: CalculatorServiceId): service is PricedServiceId {
-  return PRICED.has(service);
+function addLine(
+  lines: Line[],
+  id: string,
+  label: string,
+  amountCents: number,
+  kind: Line['kind'],
+  options: { included?: boolean; pending?: boolean } = {},
+) {
+  lines.push({ id, label, amountCents, kind, ...options });
 }
 
-export function bathEquivalents(fullBaths: number, halfBaths: number): number {
-  return fullBaths + halfBaths * 0.5;
-}
-
-function emptyResult(
-  service: CalculatorServiceId,
-  reasons: string[],
-  extras: Partial<EstimateResult> = {},
-): EstimateResult {
+function quoteRequired(
+  version: number,
+  input: EstimateInput,
+  reason: string,
+  lines: Line[] = [],
+): EstimateResponse {
   return {
+    version,
+    service: input.service,
     status: 'quote_required',
-    reasons,
-    service,
-    lines: [],
-    coreCents: 0,
+    reason,
+    totalCents: null,
+    coreCents: null,
     discountCents: 0,
-    minimumAdjustmentCents: 0,
-    netCoreCents: 0,
-    extrasCents: 0,
-    feesCents: 0,
-    subtotalCents: 0,
-    taxCents: 0,
-    totalCents: 0,
-    taxRateBps: extras.taxRateBps ?? null,
-    bathEquivalents: extras.bathEquivalents ?? 0,
-    ...extras,
+    netCents: null,
+    heavyCents: 0,
+    addOnsCents: 0,
+    travelCents: 0,
+    subtotalCents: null,
+    taxCents: null,
+    taxBasisPoints: null,
+    lines,
   };
 }
 
-export function calculateEstimate(input: EstimateInput, settings: PricingSettings): EstimateResult {
+function lineSum(lines: Line[]) {
+  return lines.reduce((total, line) => total + line.amountCents, 0);
+}
+
+export function calculateEstimate(
+  version: number,
+  settings: PricingSettings,
+  input: EstimateInput,
+): EstimateResponse {
+  if (input.service === 'commercial')
+    return quoteRequired(version, input, 'Commercial work needs a walkthrough and a custom quote.');
+  if (input.service === 'postConstruction')
+    return quoteRequired(
+      version,
+      input,
+      'Post-construction work needs a walkthrough and a custom quote.',
+    );
+  if (input.service === 'medicalGradeSanitation')
+    return quoteRequired(
+      version,
+      input,
+      'Sanitation-focused work needs a walkthrough and a custom quote.',
+    );
+
+  const market = settings.markets.find(
+    (entry) =>
+      entry.city.toLocaleLowerCase('en-US') === input.city.toLocaleLowerCase('en-US') &&
+      entry.state.toLocaleUpperCase('en-US') === input.state.toLocaleUpperCase('en-US'),
+  );
   const reasons: string[] = [];
-  const baths = bathEquivalents(input.fullBaths, input.halfBaths);
-
-  if (!input.marketPricingEnabled) {
-    reasons.push('This market is not enabled for automated estimates. Request a quote.');
-  }
-  if (input.service === 'commercial') {
-    reasons.push('Commercial cleaning requires an onsite walkthrough and written quote.');
-  }
-  if (input.service === 'postConstruction') {
-    reasons.push('Post-construction / builder work requires a walkthrough and written quote.');
-  }
-  if (input.bedrooms === '5plus' || (typeof input.bedrooms === 'number' && input.bedrooms > settings.maxAutoBedrooms)) {
-    reasons.push('Homes with five or more bedrooms need a personalized quote.');
-  }
-  if (input.squareFeet === null || !Number.isFinite(input.squareFeet) || input.squareFeet <= 0) {
-    reasons.push('Exact square footage is required for an automated estimate.');
-  }
-  if (input.squareFeet !== null && input.squareFeet > settings.maxAutoSqFt) {
-    reasons.push(`Homes over ${settings.maxAutoSqFt.toLocaleString()} sq. ft. require a quote.`);
-  }
-  if (baths > settings.maxAutoBathEquivalents) {
-    reasons.push(`More than ${settings.maxAutoBathEquivalents} bath equivalents require a quote.`);
-  }
-  if (input.kitchens > 1) {
-    reasons.push('Multiple kitchens require a customized quote.');
-  }
-  // PDF § review gates — clear automated total when selected.
-  if (input.severeOrUnknownCondition) {
-    reasons.push('Severe or unknown condition requires staff review.');
-  }
-  if (input.highWorkRequested) {
-    reasons.push('High-surface work requires separate assessment.');
-  }
-  if (input.travelMiles !== null) {
-    const band = resolveTravelBand(input.travelMiles, settings);
-    if (band?.quoteRequired) {
-      reasons.push('Travel beyond configured distance requires a quote.');
-    }
-  } else if (input.travelMiles === null && input.service !== 'commercial' && input.service !== 'postConstruction') {
-    // Unconfigured distance is review only when explicitly unknown after market OK —
-    // launch default: treat null miles as hub-unknown → no travel fee, no gate.
+  if (!market || !market.isActive) reasons.push('Pricing is not available for this market.');
+  else if (!market.pricingEnabled)
+    reasons.push('Automated pricing is not enabled for this market.');
+  else if (market.taxBasisPoints === null)
+    reasons.push('The tax rate for this market needs confirmation.');
+  if (input.bedrooms >= 5) reasons.push('Homes with five or more bedrooms need a custom quote.');
+  if (input.squareFeet > settings.maxAutoSqFt)
+    reasons.push(
+      `Homes over ${settings.maxAutoSqFt.toLocaleString('en-US')} square feet need a walkthrough.`,
+    );
+  const bathEquivalents = input.fullBaths + input.halfBaths / 2;
+  if (bathEquivalents > 4)
+    reasons.push('Homes with more than four bath equivalents need a custom quote.');
+  if (input.kitchens > 1) reasons.push('Homes with more than one kitchen need a custom quote.');
+  if (input.condition === 'severe' || input.condition === 'unknown')
+    reasons.push('The condition needs an in-person scope review.');
+  if (input.highWork) reasons.push('High-work properties need a custom quote.');
+  if (input.condition === 'heavy' && !input.heavyConditionApproved)
+    reasons.push('The heavy-condition allowance needs approval before pricing.');
+  if (input.travelMiles > 50) reasons.push('Travel over 50 miles needs a custom quote.');
+  if (input.rush) reasons.push('Rush service is pending confirmation.');
+  if (reasons.length > 0) {
+    const pendingLines: Line[] = [];
+    if (input.rush)
+      addLine(
+        pendingLines,
+        'rush',
+        'Rush request (pending confirmation)',
+        settings.addOns.rushCents,
+        'add_on',
+        { pending: true },
+      );
+    return quoteRequired(version, input, reasons.join(' '), pendingLines);
   }
 
-  const laundryQty = input.addOnQuantities.laundry ?? 0;
-  if (laundryQty > settings.maxAutoLaundryLoads) {
-    reasons.push('More than two laundry loads require review.');
-  }
-  const dishQty = input.addOnQuantities.dishes ?? 0;
-  if (dishQty > settings.maxAutoDishBlocks) {
-    reasons.push('Larger dish volume requires review.');
-  }
-  if (input.service === 'airbnb') {
-    const beds = input.addOnQuantities.linenChanges ?? 0;
-    if (beds > 6) {
-      reasons.push('More than six Airbnb bed changes require review.');
-    }
-  }
+  const service = input.service as PricedService;
+  const rate = settings.services[service];
+  const lines: Line[] = [];
+  addLine(lines, 'base', `${serviceLabel(service)} base`, rate.baseCents, 'core');
 
-  if (reasons.length > 0 || !isPricedService(input.service)) {
-    return emptyResult(input.service, reasons, { bathEquivalents: baths, taxRateBps: input.taxRateBps });
-  }
-
-  const row = settings.services[input.service];
-  const sqft = input.squareFeet as number;
-  const bedroomCount = typeof input.bedrooms === 'number' ? input.bedrooms : 0;
-
-  const sizeCharge = roundCents(Math.max(0, sqft - settings.includedSqFt) * row.areaRateCentsPerSqFt);
-  const bedroomCharge = bedroomCount * row.bedroomCents;
-  const extraBaths = Math.max(0, baths - 1);
-  const bathCharge = roundCents(extraBaths * row.bathCents);
-  const officeCharge = input.offices * row.officeCents;
-  const livingCharge = input.extraLivingRooms * row.extraLivingCents;
-
-  const coreCents =
-    row.baseCents + sizeCharge + bedroomCharge + bathCharge + officeCharge + livingCharge;
-
-  const lines: EstimateLine[] = [
-    { id: 'base', label: 'Base (includes first 600 sq. ft.)', amountCents: row.baseCents, taxable: true },
-  ];
-  if (sizeCharge > 0) {
-    lines.push({
-      id: 'size',
-      label: `Size (${(sqft - settings.includedSqFt).toLocaleString()} sq. ft. above ${settings.includedSqFt})`,
-      amountCents: sizeCharge,
-      taxable: true,
-    });
-  }
-  if (bedroomCharge > 0) {
-    lines.push({
-      id: 'bedrooms',
-      label: `Bedrooms (${bedroomCount})`,
-      amountCents: bedroomCharge,
-      taxable: true,
-    });
-  }
-  if (bathCharge > 0) {
-    lines.push({
-      id: 'baths',
-      label: `Additional bathrooms (${extraBaths} eq.)`,
-      amountCents: bathCharge,
-      taxable: true,
-    });
-  }
-  if (officeCharge > 0) {
-    lines.push({
-      id: 'offices',
-      label: `Offices / studies (${input.offices})`,
-      amountCents: officeCharge,
-      taxable: true,
-    });
-  }
-  if (livingCharge > 0) {
-    lines.push({
-      id: 'living',
-      label: `Extra living / bonus rooms (${input.extraLivingRooms})`,
-      amountCents: livingCharge,
-      taxable: true,
-    });
-  }
-
-  let discountCents = 0;
-  const eligibleRecurring =
-    input.service === 'standard' &&
-    !input.isFirstRecurringVisit &&
-    (input.cadence === 'weekly' || input.cadence === 'biweekly' || input.cadence === 'monthly');
-  if (eligibleRecurring && input.cadence !== 'one_time') {
-    const pct = settings.recurringDiscounts[input.cadence];
-    discountCents = roundCents(coreCents * pct);
-    lines.push({
-      id: 'discount',
-      label: `${input.cadence} recurring discount (${Math.round(pct * 100)}%)`,
-      amountCents: -discountCents,
-      taxable: true,
-    });
-  }
-
-  const afterDiscount = coreCents - discountCents;
-  const netCoreCents = Math.max(afterDiscount, row.minimumCents);
-  const minimumAdjustmentCents = netCoreCents - afterDiscount;
-  if (minimumAdjustmentCents > 0) {
-    lines.push({
-      id: 'minimum',
-      label: 'Minimum booking adjustment',
-      amountCents: minimumAdjustmentCents,
-      taxable: true,
-    });
-  }
-
-  let feesCents = 0;
-  let extrasCents = 0;
-
-  if (input.heavyConditionApproved) {
-    const heavy = roundCents(coreCents * settings.heavyConditionPercentOfCore);
-    feesCents += heavy;
-    lines.push({
-      id: 'heavy',
-      label: 'Approved heavy-condition adjustment',
-      amountCents: heavy,
-      taxable: true,
-    });
-  }
-
-  if (input.petHairNeeded) {
-    feesCents += settings.petHairCents;
-    lines.push({
-      id: 'petHair',
-      label: 'Pet hair extra work',
-      amountCents: settings.petHairCents,
-      taxable: true,
-    });
-  }
-
-  if (input.rushRequested && settings.rushFeeCents > 0) {
-    feesCents += settings.rushFeeCents;
-    lines.push({
-      id: 'rush',
-      label: `Rush fee ($${ (settings.rushFeeCents / 100).toFixed(0) }, pending confirmation)`,
-      amountCents: settings.rushFeeCents,
-      taxable: true,
-    });
-  }
-
-  if (input.travelMiles !== null) {
-    const band = resolveTravelBand(input.travelMiles, settings);
-    if (band && band.feeCents > 0 && !band.quoteRequired) {
-      feesCents += band.feeCents;
-      lines.push({
-        id: 'travel',
-        label: 'Travel fee',
-        amountCents: band.feeCents,
-        taxable: true,
-      });
-    }
-  }
-
-  const addonExtra = priceAddOns(input, settings, lines);
-  extrasCents += addonExtra;
-
-  const subtotalCents = netCoreCents + feesCents + extrasCents;
-
-  let taxCents = 0;
-  if (input.taxRateBps === null) {
-    reasons.push('Tax rate is not configured for this market; billing held for review.');
-    return {
-      status: 'quote_required',
-      reasons,
-      service: input.service,
+  const additionalSquareFeet = Math.max(0, input.squareFeet - settings.includedSqFt);
+  if (additionalSquareFeet > 0)
+    addLine(
       lines,
-      coreCents,
-      discountCents,
-      minimumAdjustmentCents,
-      netCoreCents,
-      extrasCents,
-      feesCents,
-      subtotalCents,
-      taxCents: 0,
-      totalCents: 0,
-      taxRateBps: null,
-      bathEquivalents: baths,
-    };
+      'area',
+      `Additional area (${additionalSquareFeet.toLocaleString('en-US')} sq ft)`,
+      additionalSquareFeet * settings.areaCentsPerSqFt[service],
+      'core',
+    );
+  if (input.bedrooms > 0)
+    addLine(
+      lines,
+      'bedrooms',
+      `Bedrooms (${input.bedrooms})`,
+      input.bedrooms * settings.bedroomCents[service],
+      'core',
+    );
+  const bathEquivalentsTwice = Math.max(0, input.fullBaths * 2 + input.halfBaths - 2);
+  if (bathEquivalentsTwice > 0)
+    addLine(
+      lines,
+      'bathrooms',
+      `Extra bath equivalents (${formatHalfUnits(bathEquivalentsTwice)})`,
+      roundHalfUp(bathEquivalentsTwice * settings.bathEquivalentCents[service], 2),
+      'core',
+    );
+  if (input.offices > 0)
+    addLine(
+      lines,
+      'offices',
+      `Office (${input.offices})`,
+      input.offices * settings.officeCents[service],
+      'core',
+    );
+  if (input.extraRooms > 0)
+    addLine(
+      lines,
+      'extra-rooms',
+      `Extra living or bonus rooms (${input.extraRooms})`,
+      input.extraRooms * settings.extraRoomCents[service],
+      'core',
+    );
+
+  const coreCents = lineSum(lines);
+  const discountBasisPoints =
+    service === 'standard' && input.cadence && input.returningRecurring
+      ? settings.recurringDiscountBasisPoints[input.cadence]
+      : 0;
+  const discountCents = roundHalfUp(coreCents * discountBasisPoints, 10_000);
+  const afterDiscount = coreCents - discountCents;
+  const netCents = Math.max(afterDiscount, rate.minimumCents);
+  if (discountCents > 0)
+    addLine(lines, 'recurring-discount', 'Recurring visit discount', discountCents, 'discount');
+  if (netCents > afterDiscount)
+    addLine(
+      lines,
+      'minimum-adjustment',
+      'Service minimum adjustment',
+      netCents - afterDiscount,
+      'core',
+    );
+
+  const heavyCents =
+    input.condition === 'heavy' && input.heavyConditionApproved
+      ? roundHalfUp(coreCents * settings.addOns.heavyConditionBasisPoints, 10_000)
+      : 0;
+  if (heavyCents > 0)
+    addLine(lines, 'heavy-condition', 'Approved heavy-condition allowance', heavyCents, 'heavy');
+
+  const addOnStart = lines.length;
+  const addOns = settings.addOns;
+  if (service === 'move') {
+    const extraOvens = Math.max(0, input.ovenCavities - 1);
+    const extraRefrigerators = Math.max(0, input.refrigeratorCount - 1);
+    addLine(lines, 'oven-included', 'Oven interior (one included)', 0, 'add_on', {
+      included: true,
+    });
+    if (extraOvens > 0)
+      addLine(
+        lines,
+        'oven-extra',
+        extraOvens > 1 ? `Oven interior (extra) ×${extraOvens}` : 'Oven interior (extra)',
+        extraOvens * addOns.ovenCents,
+        'add_on',
+      );
+    addLine(lines, 'refrigerator', 'Refrigerator interior (included)', 0, 'add_on', {
+      included: true,
+    });
+    if (extraRefrigerators > 0)
+      addLine(
+        lines,
+        'refrigerator-extra',
+        extraRefrigerators > 1
+          ? `Refrigerator interior (extra) ×${extraRefrigerators}`
+          : 'Refrigerator interior (extra)',
+        extraRefrigerators * addOns.refrigeratorCents,
+        'add_on',
+      );
+    addLine(lines, 'cabinets', 'Cabinet interiors (included)', 0, 'add_on', { included: true });
+  } else {
+    if (input.ovenCavities > 0)
+      addLine(lines, 'oven', 'Oven interior', input.ovenCavities * addOns.ovenCents, 'add_on');
+    if (input.refrigeratorCount > 0)
+      addLine(
+        lines,
+        'refrigerator',
+        'Refrigerator interior',
+        input.refrigeratorCount * addOns.refrigeratorCents,
+        'add_on',
+      );
+    if (input.cabinetDoors > 0) {
+      const extraDoors = Math.max(0, input.cabinetDoors - addOns.cabinetIncludedDoors);
+      const cabinetCents = addOns.cabinetBaseCents + extraDoors * addOns.cabinetExtraDoorCents;
+      addLine(lines, 'cabinets', 'Cabinet interiors', cabinetCents, 'add_on');
+    }
   }
 
-  const taxable = lines.filter((l) => l.taxable).reduce((sum, l) => sum + l.amountCents, 0);
-  taxCents = roundCents((Math.max(0, taxable) * input.taxRateBps) / 10000);
-  lines.push({
-    id: 'tax',
-    label: `Sales tax (${(input.taxRateBps / 100).toFixed(2)}%)`,
-    amountCents: taxCents,
-    taxable: false,
-  });
+  if (input.windowPanes > 0)
+    addLine(
+      lines,
+      'windows',
+      `Interior windows (${input.windowPanes} panes)`,
+      Math.max(addOns.windowMinimumCents, input.windowPanes * addOns.windowPaneCents),
+      'add_on',
+    );
+  if (input.windowTracks > 0)
+    addLine(
+      lines,
+      'window-tracks',
+      `Window tracks (${input.windowTracks})`,
+      input.windowTracks * addOns.windowTrackCents,
+      'add_on',
+    );
+  if (input.blinds > 0)
+    addLine(
+      lines,
+      'blinds',
+      `Blinds (${input.blinds})`,
+      input.blinds * addOns.blindCents,
+      'add_on',
+    );
+
+  const baseboardsIncluded = service === 'deep' || service === 'move';
+  const baseboardCents = baseboardsIncluded
+    ? 0
+    : input.baseboards
+      ? Math.ceil(input.squareFeet / 1_000) * addOns.baseboardsPerStarted1000Cents
+      : 0;
+  if (baseboardsIncluded)
+    addLine(lines, 'baseboards', 'Baseboards (included)', 0, 'add_on', { included: true });
+  else if (baseboardCents > 0) addLine(lines, 'baseboards', 'Baseboards', baseboardCents, 'add_on');
+
+  if (input.linenBeds > 0) {
+    const linenChargeableBeds =
+      service === 'airbnb'
+        ? Math.max(0, input.linenBeds - addOns.airbnbIncludedLinenBeds)
+        : input.linenBeds;
+    const linenRate = service === 'airbnb' ? addOns.airbnbExtraLinenCents : addOns.linenCents;
+    addLine(
+      lines,
+      'linen',
+      service === 'airbnb' ? 'Linen changes (additional beds)' : 'Linen changes',
+      linenChargeableBeds * linenRate,
+      'add_on',
+      linenChargeableBeds === 0 ? { included: true } : {},
+    );
+  }
+  if (input.laundryLoads > 0)
+    addLine(
+      lines,
+      'laundry',
+      `Laundry (${input.laundryLoads} loads)`,
+      input.laundryLoads * addOns.laundryPerLoadCents,
+      'add_on',
+    );
+  if (input.dishBlocks > 0)
+    addLine(
+      lines,
+      'dishes',
+      `Dishes (${input.dishBlocks} × 15-minute blocks)`,
+      input.dishBlocks * addOns.dishesPerBlockCents,
+      'add_on',
+    );
+  if (input.garageBays > 0)
+    addLine(
+      lines,
+      'garage',
+      `Garage (${input.garageBays} bays)`,
+      input.garageBays * addOns.garageBayCents,
+      'add_on',
+    );
+  if (input.petHair) addLine(lines, 'pet-hair', 'Pet hair', addOns.petHairCents, 'add_on');
+  if (input.rush)
+    addLine(lines, 'rush', 'Rush request (pending confirmation)', addOns.rushCents, 'add_on', {
+      pending: true,
+    });
+
+  const addOnsCents = lineSum(lines.slice(addOnStart));
+  let travelCents = 0;
+  if (input.travelMiles > 35) travelCents = 6_000;
+  else if (input.travelMiles > 20) travelCents = 3_000;
+  addLine(
+    lines,
+    'travel',
+    input.travelMiles <= 20 ? 'Travel (within 20 miles)' : 'Travel',
+    travelCents,
+    'travel',
+  );
+
+  const subtotalCents = netCents + heavyCents + addOnsCents + travelCents;
+  addLine(lines, 'subtotal', 'Subtotal', subtotalCents, 'subtotal');
+  const taxBasisPoints = market?.taxBasisPoints ?? 0;
+  const taxCents = roundHalfUp(subtotalCents * taxBasisPoints, 10_000);
+  addLine(lines, 'tax', `Market tax (${(taxBasisPoints / 100).toFixed(2)}%)`, taxCents, 'tax');
+  const totalCents = subtotalCents + taxCents;
+  addLine(lines, 'total', 'Total', totalCents, 'total');
 
   return {
-    status: 'priced',
-    reasons: [],
+    version,
     service: input.service,
-    lines,
+    status: 'priced',
+    reason: null,
+    totalCents,
     coreCents,
     discountCents,
-    minimumAdjustmentCents,
-    netCoreCents,
-    extrasCents,
-    feesCents,
+    netCents,
+    heavyCents,
+    addOnsCents,
+    travelCents,
     subtotalCents,
     taxCents,
-    totalCents: subtotalCents + taxCents,
-    taxRateBps: input.taxRateBps,
-    bathEquivalents: baths,
+    taxBasisPoints,
+    lines,
   };
 }
 
-function resolveTravelBand(miles: number, settings: PricingSettings) {
-  for (const band of settings.travelBands) {
-    if (band.maxMilesInclusive === null) return band;
-    if (miles <= band.maxMilesInclusive) return band;
-  }
-  return settings.travelBands[settings.travelBands.length - 1];
+function serviceLabel(service: PricedService) {
+  return {
+    standard: 'Standard cleaning',
+    deep: 'Deep cleaning',
+    move: 'Move-in / move-out cleaning',
+    airbnb: 'Airbnb turnover',
+  }[service];
 }
 
-function priceAddOns(
-  input: EstimateInput,
-  settings: PricingSettings,
-  lines: EstimateLine[],
-): number {
-  let total = 0;
-  const service = input.service as PricedServiceId;
-  const qty = input.addOnQuantities;
+function formatHalfUnits(twice: number) {
+  return twice % 2 === 0 ? String(twice / 2) : `${Math.floor(twice / 2)}.5`;
+}
 
-  // Baseboards: Standard/Airbnb charge per started 1000 sq ft; Deep/Move included.
-  const baseboardIncluded = service === 'deep' || service === 'move';
-  if (baseboardIncluded) {
-    lines.push({
-      id: 'baseboards-included',
-      label: 'Hand-wiped baseboards',
-      amountCents: 0,
-      taxable: true,
-    });
-  } else if ((qty.baseboards ?? 0) > 0 && input.squareFeet) {
-    const blocks = Math.ceil(input.squareFeet / 1000);
-    const amount = blocks * settings.baseboardsPerStartedThousandCents;
-    total += amount;
-    lines.push({
-      id: 'baseboards',
-      label: `Hand-wiped baseboards (${blocks}×1,000 sq. ft.)`,
-      amountCents: amount,
-      taxable: true,
-    });
-  }
-
-  const ovenQty = qty.oven ?? 0;
-  const fridgeQty = qty.fridge ?? 0;
-  const cabinetQty = qty.cabinets ?? 0;
-  const moveIncluded = service === 'move';
-
-  if (moveIncluded) {
-    lines.push({ id: 'oven-included', label: 'Oven interior (1 included)', amountCents: 0, taxable: true });
-    lines.push({
-      id: 'fridge-included',
-      label: 'Refrigerator interior (1 included)',
-      amountCents: 0,
-      taxable: true,
-    });
-    lines.push({
-      id: 'cabinets-included',
-      label: 'Empty cabinet interiors (included)',
-      amountCents: 0,
-      taxable: true,
-    });
-  }
-
-  const ovenRate = settings.addOns.find((a) => a.id === 'oven')?.unitCents ?? 6000;
-  const fridgeRate = settings.addOns.find((a) => a.id === 'fridge')?.unitCents ?? 4500;
-
-  const billableOvens = moveIncluded ? Math.max(0, ovenQty - 1) : ovenQty;
-  if (billableOvens > 0) {
-    const amount = billableOvens * ovenRate;
-    total += amount;
-    lines.push({
-      id: 'oven',
-      label: moveIncluded
-        ? billableOvens === 1
-          ? 'Oven interior (extra)'
-          : `Oven interior (extra ×${billableOvens})`
-        : `Oven interior (${billableOvens})`,
-      amountCents: amount,
-      taxable: true,
-    });
-  }
-
-  const billableFridges = moveIncluded ? Math.max(0, fridgeQty - 1) : fridgeQty;
-  if (billableFridges > 0) {
-    const amount = billableFridges * fridgeRate;
-    total += amount;
-    lines.push({
-      id: 'fridge',
-      label: moveIncluded
-        ? billableFridges === 1
-          ? 'Refrigerator interior (extra)'
-          : `Refrigerator interior (extra ×${billableFridges})`
-        : `Refrigerator interior (${billableFridges})`,
-      amountCents: amount,
-      taxable: true,
-    });
-  }
-
-  // Cabinets: $60 up to 20 doors, then $3 each; Move includes base set once.
-  if (!moveIncluded && cabinetQty > 0) {
-    const doors = cabinetQty;
-    const amount =
-      settings.cabinetInteriorBaseCents +
-      Math.max(0, doors - settings.cabinetInteriorIncludedDoors) * settings.cabinetInteriorExtraDoorCents;
-    total += amount;
-    lines.push({
-      id: 'cabinets',
-      label: `Empty cabinet interiors (${doors} doors/drawers)`,
-      amountCents: amount,
-      taxable: true,
-    });
-  } else if (moveIncluded && cabinetQty > settings.cabinetInteriorIncludedDoors) {
-    const extra = cabinetQty - settings.cabinetInteriorIncludedDoors;
-    const amount = extra * settings.cabinetInteriorExtraDoorCents;
-    total += amount;
-    lines.push({
-      id: 'cabinets-extra',
-      label: `Extra cabinet doors/drawers (${extra})`,
-      amountCents: amount,
-      taxable: true,
-    });
-  }
-
-  const panes = qty.interiorWindows ?? 0;
-  if (panes > 0) {
-    const amount = Math.max(settings.windowPaneCents * panes, 4000);
-    total += amount;
-    lines.push({
-      id: 'interiorWindows',
-      label: `Interior window glass (${panes} panes)`,
-      amountCents: amount,
-      taxable: true,
-    });
-  }
-
-  const tracks = qty.windowTracks ?? 0;
-  if (tracks > 0) {
-    const amount = tracks * settings.windowTracksCents;
-    total += amount;
-    lines.push({
-      id: 'windowTracks',
-      label: `Window tracks (${tracks})`,
-      amountCents: amount,
-      taxable: true,
-    });
-  }
-
-  const blinds = qty.blinds ?? 0;
-  if (blinds > 0) {
-    const amount = blinds * settings.blindCents;
-    total += amount;
-    lines.push({
-      id: 'blinds',
-      label: `Blinds (${blinds})`,
-      amountCents: amount,
-      taxable: true,
-    });
-  }
-
-  let linenBeds = qty.linenChanges ?? 0;
-  if (service === 'airbnb') {
-    const included = settings.airbnbIncludedBedChanges;
-    lines.push({
-      id: 'linen-included',
-      label: `Bed linen changes (${included} included)`,
-      amountCents: 0,
-      taxable: true,
-    });
-    const extra = Math.max(0, linenBeds - included);
-    if (extra > 0) {
-      const amount = extra * settings.airbnbExtraBedChangeCents;
-      total += amount;
-      lines.push({
-        id: 'linenChanges',
-        label: `Additional bed changes (${extra})`,
-        amountCents: amount,
-        taxable: true,
-      });
-    }
-  } else if (linenBeds > 0) {
-    const amount = linenBeds * settings.linenChangeCents;
-    total += amount;
-    lines.push({
-      id: 'linenChanges',
-      label: `Linen / bed changes (${linenBeds})`,
-      amountCents: amount,
-      taxable: true,
-    });
-  }
-
-  const laundry = qty.laundry ?? 0;
-  if (laundry > 0) {
-    const amount = laundry * settings.laundryLoadCents;
-    total += amount;
-    lines.push({
-      id: 'laundry',
-      label: `Onsite laundry (${laundry} loads)`,
-      amountCents: amount,
-      taxable: true,
-    });
-  }
-
-  const dishes = qty.dishes ?? 0;
-  if (dishes > 0) {
-    const amount = dishes * settings.dishesBlockCents;
-    total += amount;
-    lines.push({
-      id: 'dishes',
-      label: `Dishes (${dishes}×15 min)`,
-      amountCents: amount,
-      taxable: true,
-    });
-  }
-
-  const garage = qty.garage ?? 0;
-  if (garage > 0) {
-    const amount = garage * settings.garageBayCents;
-    total += amount;
-    lines.push({
-      id: 'garage',
-      label: `Garage sweep (${garage} bays)`,
-      amountCents: amount,
-      taxable: true,
-    });
-  }
-
-  return total;
+export function formatEstimateTotal(estimate: EstimateResponse) {
+  return estimate.totalCents === null
+    ? 'Quote after review'
+    : formatUsdFromCents(estimate.totalCents);
 }

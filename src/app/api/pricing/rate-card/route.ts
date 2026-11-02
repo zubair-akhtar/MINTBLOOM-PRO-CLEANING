@@ -1,46 +1,34 @@
-// @polsia:user-owned — public active rate-card summary for /book service hints.
+// @polsia:user-owned — public, customer-safe active rate-card hints.
 import 'server-only';
 
 import { NextResponse } from 'next/server';
+import { formatUsdFromCents } from '@/lib/business/pricing/money';
 import { getActivePricingSettings } from '@/lib/business/pricing/store';
-import type { PricedServiceId } from '@/lib/business/pricing/types';
+import { publicRateCardSchema } from '@/lib/contracts/pricing';
 
 export const dynamic = 'force-dynamic';
 
-const PRICED: PricedServiceId[] = ['standard', 'deep', 'move', 'airbnb'];
-
 export async function GET() {
   try {
-    const { version, label, settings } = await getActivePricingSettings();
-    const services = Object.fromEntries(
-      PRICED.map((id) => [
-        id,
-        {
-          baseCents: settings.services[id].baseCents,
-          minimumCents: settings.services[id].minimumCents,
-          areaRateCentsPerSqFt: settings.services[id].areaRateCentsPerSqFt,
-          bedroomCents: settings.services[id].bedroomCents,
-          bathCents: settings.services[id].bathCents,
-        },
-      ]),
-    );
-
+    const { version, settings } = await getActivePricingSettings();
+    const response = publicRateCardSchema.parse({
+      version,
+      includedSqFt: settings.includedSqFt,
+      serviceHints: {
+        standard: `From ${formatUsdFromCents(settings.services.standard.baseCents)}`,
+        deep: `From ${formatUsdFromCents(settings.services.deep.baseCents)}`,
+        move: `From ${formatUsdFromCents(settings.services.move.baseCents)}`,
+        airbnb: `From ${formatUsdFromCents(settings.services.airbnb.baseCents)}`,
+        commercial: 'Walkthrough',
+        postConstruction: 'Quote',
+        medicalGradeSanitation: 'Quote',
+      },
+    });
+    return NextResponse.json(response, { headers: { 'Cache-Control': 'no-store' } });
+  } catch {
     return NextResponse.json(
-      {
-        version,
-        label,
-        includedSqFt: settings.includedSqFt,
-        commercialPerSqFtCents: settings.commercialPerSqFtCents,
-        services,
-      },
-      {
-        headers: {
-          'Cache-Control': 'no-store, max-age=0',
-        },
-      },
+      { error: 'rate_card_unavailable' },
+      { status: 503, headers: { 'Cache-Control': 'no-store' } },
     );
-  } catch (error) {
-    console.error('[pricing/rate-card]', error);
-    return NextResponse.json({ error: 'rate_card_unavailable' }, { status: 500 });
   }
 }

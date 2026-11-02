@@ -95,16 +95,15 @@ export function BlogArticle({ post }: { post: BlogPost }) {
 
         <aside className="mx-auto flex w-full max-w-3xl flex-col gap-4 rounded-2xl border border-primary/15 bg-brand-50/45 p-6 dark:bg-brand-900/10 sm:flex-row sm:items-center sm:justify-between sm:p-7">
           <div className="flex flex-col gap-1">
-            <h2 className="font-display text-h3 text-foreground">
-              Ready to review your cleaning scope?
-            </h2>
+            <h2 className="font-display text-h3 text-foreground">Ready to request service?</h2>
             <p className="text-small text-muted-foreground">
-              Start with Mintbloom Pro’s booking flow for approved residential work.
+              Share your ZIP code, requested scope, and preferred timing for review. A request does
+              not confirm availability, final pricing, or an appointment.
             </p>
           </div>
           <Button asChild className="w-full shrink-0 gap-2 sm:w-auto">
             <Link href="/book">
-              Request a quote <ArrowRight className="size-4" aria-hidden />
+              Start a service request <ArrowRight className="size-4" aria-hidden />
             </Link>
           </Button>
         </aside>

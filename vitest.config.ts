@@ -9,6 +9,9 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [react()],
+  // postcss.config.mjs uses Next's string plugin form, which Vite rejects, and `vitest --changed`
+  // loads it for any CSS in the import graph. Unit tests never need Tailwind.
+  css: { postcss: {} },
   test: {
     environment: 'jsdom',
     globals: false,

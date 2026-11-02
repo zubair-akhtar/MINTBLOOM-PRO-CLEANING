@@ -1,7 +1,8 @@
+// @polsia:user-owned — focused v3 pricing samples and quote-gate regressions.
 import { describe, expect, it } from 'vitest';
 import { calculateEstimate } from '@/lib/business/pricing/calculate';
-import { DEFAULT_PRICING_SETTINGS } from '@/lib/business/pricing/defaults';
-import type { EstimateInput } from '@/lib/business/pricing/types';
+import { defaultPricingSettings } from '@/lib/business/pricing/defaults';
+import type { EstimateInput } from '@/lib/contracts/pricing';
 
 const base = (overrides: Partial<EstimateInput> = {}): EstimateInput => ({
   service: 'standard',
@@ -9,135 +10,138 @@ const base = (overrides: Partial<EstimateInput> = {}): EstimateInput => ({
   bedrooms: 0,
   fullBaths: 1,
   halfBaths: 0,
-  offices: 0,
-  extraLivingRooms: 0,
   kitchens: 1,
-  cadence: 'one_time',
-  isFirstRecurringVisit: true,
-  addOnQuantities: {},
+  offices: 0,
+  extraRooms: 0,
+  condition: 'routine',
+  highWork: false,
   heavyConditionApproved: false,
-  petHairNeeded: false,
-  rushRequested: false,
-  travelMiles: 5,
-  highWorkRequested: false,
-  severeOrUnknownCondition: false,
-  marketPricingEnabled: true,
-  taxRateBps: 825,
+  cadence: null,
+  returningRecurring: false,
+  ovenCavities: 0,
+  refrigeratorCount: 0,
+  cabinetDoors: 0,
+  baseboards: false,
+  windowPanes: 0,
+  windowTracks: 0,
+  blinds: 0,
+  linenBeds: 0,
+  laundryLoads: 0,
+  dishBlocks: 0,
+  garageBays: 0,
+  petHair: false,
+  rush: false,
+  travelMiles: 0,
+  city: 'Lubbock',
+  state: 'TX',
   ...overrides,
 });
 
-describe('v3 calculateEstimate', () => {
-  it('prices a 500 sqft studio standard at $145 before tax', () => {
-    const result = calculateEstimate(base(), DEFAULT_PRICING_SETTINGS);
-    expect(result.status).toBe('priced');
-    expect(result.coreCents).toBe(14500);
-    expect(result.subtotalCents).toBe(14500);
-    expect(result.taxCents).toBe(1196);
-    expect(result.totalCents).toBe(15696);
+describe('Mintbloom v3 calculator samples', () => {
+  it('prices a 500 sq ft studio Standard at $145 before tax', () => {
+    const estimate = calculateEstimate(1, defaultPricingSettings, base({ fullBaths: 0 }));
+    expect(estimate.status).toBe('priced');
+    expect(estimate.coreCents).toBe(14500);
+    expect(estimate.subtotalCents).toBe(14500);
   });
 
-  it('charges $0.08 for the 601st sq ft', () => {
-    const at600 = calculateEstimate(base({ squareFeet: 600, fullBaths: 0 }), DEFAULT_PRICING_SETTINGS);
-    const at601 = calculateEstimate(base({ squareFeet: 601, fullBaths: 0 }), DEFAULT_PRICING_SETTINGS);
-    expect(at600.coreCents).toBe(14500);
-    expect(at601.coreCents).toBe(14508);
+  it('prices the 601st sq ft at $0.08', () => {
+    const estimate = calculateEstimate(
+      1,
+      defaultPricingSettings,
+      base({ squareFeet: 601, fullBaths: 0 }),
+    );
+    expect(estimate.coreCents).toBe(14508);
   });
 
-  it('matches 2-bed / 2-bath / 1200 sqft standard core $268', () => {
-    const result = calculateEstimate(
+  it('prices a 1,200 sq ft 2-bedroom/2-bath Standard at $268 before add-ons', () => {
+    const estimate = calculateEstimate(
+      1,
+      defaultPricingSettings,
       base({ squareFeet: 1200, bedrooms: 2, fullBaths: 2 }),
-      DEFAULT_PRICING_SETTINGS,
     );
-    expect(result.coreCents).toBe(26800);
+    expect(estimate.coreCents).toBe(26800);
   });
 
-  it('adds oven and fridge to that home', () => {
-    const result = calculateEstimate(
-      base({
-        squareFeet: 1200,
-        bedrooms: 2,
-        fullBaths: 2,
-        addOnQuantities: { oven: 1, fridge: 1 },
-      }),
-      DEFAULT_PRICING_SETTINGS,
+  it('adds one oven and one refrigerator to the $268 Standard estimate', () => {
+    const estimate = calculateEstimate(
+      1,
+      defaultPricingSettings,
+      base({ squareFeet: 1200, bedrooms: 2, fullBaths: 2, ovenCavities: 1, refrigeratorCount: 1 }),
     );
-    expect(result.subtotalCents).toBe(37300);
+    expect(estimate.subtotalCents).toBe(37300);
   });
 
-  it('applies weekly discount then enforces $145 minimum on studio', () => {
-    const result = calculateEstimate(
-      base({
-        cadence: 'weekly',
-        isFirstRecurringVisit: false,
-        fullBaths: 1,
-      }),
-      DEFAULT_PRICING_SETTINGS,
+  it('charges baseboards per started 1,000 sq ft block', () => {
+    const at1000 = calculateEstimate(
+      1,
+      defaultPricingSettings,
+      base({ squareFeet: 1000, fullBaths: 0, baseboards: true }),
     );
-    expect(result.discountCents).toBe(1450);
-    expect(result.minimumAdjustmentCents).toBe(1450);
-    expect(result.netCoreCents).toBe(14500);
+    const at1001 = calculateEstimate(
+      1,
+      defaultPricingSettings,
+      base({ squareFeet: 1001, fullBaths: 0, baseboards: true }),
+    );
+    expect(at1000.lines.find((line) => line.id === 'baseboards')?.amountCents).toBe(4000);
+    expect(at1001.lines.find((line) => line.id === 'baseboards')?.amountCents).toBe(8000);
   });
 
-  it('includes one oven and fridge in Move at $0', () => {
-    const result = calculateEstimate(
-      base({
-        service: 'move',
-        squareFeet: 500,
-        bedrooms: 0,
-        fullBaths: 1,
-        addOnQuantities: { oven: 1, fridge: 1 },
-      }),
-      DEFAULT_PRICING_SETTINGS,
+  it.each(['commercial', 'postConstruction'] as const)(
+    'keeps %s behind a quote gate without publishing a total',
+    (service) => {
+      const estimate = calculateEstimate(1, defaultPricingSettings, base({ service }));
+      expect(estimate.status).toBe('quote_required');
+      expect(estimate.totalCents).toBeNull();
+    },
+  );
+
+  it('includes one Move oven and refrigerator at $0', () => {
+    const estimate = calculateEstimate(
+      1,
+      defaultPricingSettings,
+      base({ service: 'move', ovenCavities: 1, refrigeratorCount: 1 }),
     );
-    expect(result.status).toBe('priced');
-    expect(result.extrasCents).toBe(0);
-    expect(result.coreCents).toBe(39500);
+    expect(estimate.lines.find((line) => line.id === 'oven-included')).toMatchObject({
+      label: 'Oven interior (one included)',
+      amountCents: 0,
+      included: true,
+    });
+    expect(estimate.lines.find((line) => line.id === 'refrigerator')).toMatchObject({
+      label: 'Refrigerator interior (included)',
+      amountCents: 0,
+      included: true,
+    });
+    expect(estimate.addOnsCents).toBe(0);
   });
 
-  it('charges second oven on Move', () => {
-    const result = calculateEstimate(
-      base({
-        service: 'move',
-        squareFeet: 500,
-        bedrooms: 0,
-        fullBaths: 1,
-        addOnQuantities: { oven: 2 },
-      }),
-      DEFAULT_PRICING_SETTINGS,
+  it('charges and labels extra Move appliances, including quantities', () => {
+    const oneExtra = calculateEstimate(
+      1,
+      defaultPricingSettings,
+      base({ service: 'move', ovenCavities: 2, refrigeratorCount: 2 }),
     );
-    expect(result.extrasCents).toBe(6000);
-  });
+    expect(oneExtra.lines.find((line) => line.id === 'oven-extra')).toMatchObject({
+      label: 'Oven interior (extra)',
+      amountCents: 6000,
+    });
+    expect(oneExtra.lines.find((line) => line.id === 'refrigerator-extra')).toMatchObject({
+      label: 'Refrigerator interior (extra)',
+      amountCents: 4500,
+    });
 
-  it('gates 5+ bedrooms to quote_required and clears total', () => {
-    const result = calculateEstimate(base({ bedrooms: '5plus' }), DEFAULT_PRICING_SETTINGS);
-    expect(result.status).toBe('quote_required');
-    expect(result.totalCents).toBe(0);
-  });
-
-  it('gates commercial to walkthrough quote', () => {
-    const result = calculateEstimate(base({ service: 'commercial' }), DEFAULT_PRICING_SETTINGS);
-    expect(result.status).toBe('quote_required');
-    expect(result.reasons.some((r) => /walkthrough/i.test(r))).toBe(true);
-  });
-
-  it('prices baseboards: 1000 sqft = $40, 1001 = $80 on Standard', () => {
-    const a = calculateEstimate(
-      base({ squareFeet: 1000, bedrooms: 0, fullBaths: 0, addOnQuantities: { baseboards: 1 } }),
-      DEFAULT_PRICING_SETTINGS,
+    const multipleExtras = calculateEstimate(
+      1,
+      defaultPricingSettings,
+      base({ service: 'move', ovenCavities: 3, refrigeratorCount: 3 }),
     );
-    const b = calculateEstimate(
-      base({ squareFeet: 1001, bedrooms: 0, fullBaths: 0, addOnQuantities: { baseboards: 1 } }),
-      DEFAULT_PRICING_SETTINGS,
-    );
-    expect(a.extrasCents).toBe(4000);
-    expect(b.extrasCents).toBe(8000);
-  });
-
-  it('matches 1-bed/1-bath/800 Standard = $181', () => {
-    const result = calculateEstimate(
-      base({ squareFeet: 800, bedrooms: 1, fullBaths: 1 }),
-      DEFAULT_PRICING_SETTINGS,
-    );
-    expect(result.coreCents).toBe(18100);
+    expect(multipleExtras.lines.find((line) => line.id === 'oven-extra')).toMatchObject({
+      label: 'Oven interior (extra) ×2',
+      amountCents: 12000,
+    });
+    expect(multipleExtras.lines.find((line) => line.id === 'refrigerator-extra')).toMatchObject({
+      label: 'Refrigerator interior (extra) ×2',
+      amountCents: 9000,
+    });
   });
 });

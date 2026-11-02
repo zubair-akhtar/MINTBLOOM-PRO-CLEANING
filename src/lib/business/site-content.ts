@@ -42,7 +42,7 @@ export const SITE_CONTENT: SiteContentValues = {
     {
       eyebrow: 'Transparency',
       title: 'Clear scope, human-reviewed.',
-      body: 'Basic Cleaning starts at $185. Every request is reviewed so condition, size, safety, specialty materials, and travel are handled honestly.',
+      body: 'Standard cleaning starts at $145 before market tax. Every request is reviewed so condition, size, safety, specialty materials, and travel are handled honestly.',
       bullets: [
         'Starting prices where the catalog supports them',
         'No payment collected through the request form',
@@ -119,8 +119,8 @@ export const SITE_CONTENT: SiteContentValues = {
     {
       name: 'Basic Cleaning',
       audience: 'A single reset for homes and apartments',
-      body: 'A clear, no-recurring-commitment visit. Basic Cleaning — Starting at $185; final pricing is confirmed after scope review.',
-      priceLabel: 'Basic Cleaning — Starting at $185',
+      body: 'A clear, no-recurring-commitment visit. Standard cleaning — Starting at $145 before market tax; final pricing is confirmed after scope review.',
+      priceLabel: 'Standard cleaning — Starting at $145',
       features: [
         '1–5 bedrooms',
         '1–3 bathrooms in the base matrix',

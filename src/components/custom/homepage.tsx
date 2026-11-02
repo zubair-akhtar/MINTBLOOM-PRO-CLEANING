@@ -187,8 +187,8 @@ export function Homepage() {
             <p className="text-eyebrow text-primary">Services</p>
             <h2 className="font-display text-h2 text-foreground">Choose the scope that fits.</h2>
             <p className="text-body-lg text-muted-foreground">
-              Basic Cleaning starts at $185. Every service request is reviewed for a customized
-              quote; final pricing is confirmed after scope review.
+              Standard cleaning starts at $145 before market tax. Every service request is reviewed
+              for a customized quote; final pricing is confirmed after scope review.
             </p>
           </div>
           <div className="grid items-stretch gap-5 lg:grid-cols-3">

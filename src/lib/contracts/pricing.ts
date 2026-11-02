@@ -1,106 +1,203 @@
-// @polsia:user-owned — shared zod contracts for pricing estimate + admin settings.
+// @polsia:user-owned — shared calculator and rate-card contracts.
 import { z } from 'zod';
 
-export const CalculatorServiceId = z.enum([
-  'standard',
-  'deep',
-  'move',
-  'airbnb',
+const cents = z.number().int().min(0).max(100_000_000);
+const integerCount = z.number().int().min(0).max(100_000);
+
+export const pricedServiceIds = ['standard', 'deep', 'move', 'airbnb'] as const;
+export const publicServiceIds = [
+  ...pricedServiceIds,
   'commercial',
   'postConstruction',
-]);
+  'medicalGradeSanitation',
+] as const;
 
-export const EstimateRequest = z.object({
-  service: CalculatorServiceId,
+const serviceRateSchema = z.object({
+  baseCents: cents,
+  minimumCents: cents,
+});
+
+const perServiceValues = () =>
+  z.object({
+    standard: cents,
+    deep: cents,
+    move: cents,
+    airbnb: cents,
+  });
+
+export const marketTaxSchema = z.object({
+  id: z.string().min(1).max(80),
+  label: z.string().min(1).max(120),
   city: z.string().min(1).max(100),
-  state: z.string().min(1).max(80),
-  zip: z.string().min(3).max(10),
-  squareFeet: z.number().int().positive().nullable(),
-  bedrooms: z.union([z.number().int().min(0).max(4), z.literal('5plus')]),
-  fullBaths: z.number().int().min(0).max(20),
-  halfBaths: z.number().int().min(0).max(20),
-  offices: z.number().int().min(0).max(20).default(0),
-  extraLivingRooms: z.number().int().min(0).max(20).default(0),
-  kitchens: z.number().int().min(1).max(10).default(1),
-  cadence: z.enum(['one_time', 'weekly', 'biweekly', 'monthly']).default('one_time'),
-  isFirstRecurringVisit: z.boolean().default(true),
-  addOnQuantities: z.record(z.string(), z.number().int().min(0).max(100)).default({}),
-  heavyConditionApproved: z.boolean().default(false),
-  petHairNeeded: z.boolean().default(false),
-  rushRequested: z.boolean().default(false),
-  travelMiles: z.number().min(0).max(500).nullable().default(null),
-  highWorkRequested: z.boolean().default(false),
-  severeOrUnknownCondition: z.boolean().default(false),
-});
-export type EstimateRequest = z.infer<typeof EstimateRequest>;
-
-export const EstimateLineSchema = z.object({
-  id: z.string(),
-  label: z.string(),
-  amountCents: z.number().int(),
-  taxable: z.boolean(),
-});
-
-export const EstimateResponse = z.object({
-  status: z.enum(['priced', 'quote_required']),
-  reasons: z.array(z.string()),
-  service: CalculatorServiceId,
-  lines: z.array(EstimateLineSchema),
-  coreCents: z.number().int(),
-  discountCents: z.number().int(),
-  minimumAdjustmentCents: z.number().int(),
-  netCoreCents: z.number().int(),
-  extrasCents: z.number().int(),
-  feesCents: z.number().int(),
-  subtotalCents: z.number().int(),
-  taxCents: z.number().int(),
-  totalCents: z.number().int(),
-  taxRateBps: z.number().int().nullable(),
-  bathEquivalents: z.number(),
-  rateCardVersion: z.number().int(),
-  market: z
-    .object({
-      id: z.string(),
-      name: z.string(),
-      city: z.string(),
-      state: z.string(),
-      pricingEnabled: z.boolean(),
-    })
-    .nullable(),
-  commercialReferenceCents: z.number().int().optional(),
-});
-export type EstimateResponse = z.infer<typeof EstimateResponse>;
-
-export const AdminMarketSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  city: z.string(),
-  state: z.string(),
-  isActive: z.boolean(),
+  state: z.string().length(2),
+  taxBasisPoints: z.number().int().min(0).max(20_000).nullable(),
   pricingEnabled: z.boolean(),
-  combinedTaxRateBps: z.number().int().nullable(),
+  isActive: z.boolean(),
 });
 
-export const AdminPricingSettingsResponse = z.object({
-  version: z.number().int(),
-  label: z.string(),
-  settings: z.record(z.string(), z.unknown()),
-  markets: z.array(AdminMarketSchema),
-});
-export type AdminPricingSettingsResponse = z.infer<typeof AdminPricingSettingsResponse>;
+export const pricingSettingsSchema = z
+  .object({
+    services: z.object({
+      standard: serviceRateSchema,
+      deep: serviceRateSchema,
+      move: serviceRateSchema,
+      airbnb: serviceRateSchema,
+    }),
+    includedSqFt: z.number().int().min(1).max(100_000),
+    maxAutoSqFt: z.number().int().min(1).max(100_000),
+    commercialReferenceCentsPerSqFt: cents,
+    areaCentsPerSqFt: perServiceValues(),
+    bedroomCents: perServiceValues(),
+    bathEquivalentCents: perServiceValues(),
+    officeCents: perServiceValues(),
+    extraRoomCents: perServiceValues(),
+    addOns: z.object({
+      ovenCents: cents,
+      refrigeratorCents: cents,
+      cabinetBaseCents: cents,
+      cabinetIncludedDoors: integerCount,
+      cabinetExtraDoorCents: cents,
+      windowPaneCents: cents,
+      windowMinimumCents: cents,
+      windowTrackCents: cents,
+      blindCents: cents,
+      baseboardsPerStarted1000Cents: cents,
+      linenCents: cents,
+      airbnbIncludedLinenBeds: integerCount,
+      airbnbExtraLinenCents: cents,
+      laundryPerLoadCents: cents,
+      dishesPerBlockCents: cents,
+      garageBayCents: cents,
+      petHairCents: cents,
+      rushCents: cents,
+      heavyConditionBasisPoints: z.number().int().min(0).max(20_000),
+    }),
+    recurringDiscountBasisPoints: z.object({
+      weekly: z.number().int().min(0).max(10_000),
+      biweekly: z.number().int().min(0).max(10_000),
+      monthly: z.number().int().min(0).max(10_000),
+    }),
+    markets: z.array(marketTaxSchema).min(1).max(50),
+  })
+  .strict()
+  .superRefine((settings, ctx) => {
+    if (settings.maxAutoSqFt < settings.includedSqFt)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['maxAutoSqFt'],
+        message: 'Maximum automatic size must include the base square footage.',
+      });
+    const ids = settings.markets.map((market) => market.id);
+    const locations = settings.markets.map(
+      (market) => `${market.city.trim().toLocaleLowerCase('en-US')}|${market.state.toUpperCase()}`,
+    );
+    if (new Set(ids).size !== ids.length)
+      ctx.addIssue({ code: 'custom', path: ['markets'], message: 'Market IDs must be unique.' });
+    if (new Set(locations).size !== locations.length)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['markets'],
+        message: 'Each city and state may appear only once.',
+      });
+  });
 
-export const AdminPricingSettingsPut = z.object({
-  label: z.string().min(1).max(120).optional(),
-  settings: z.record(z.string(), z.unknown()),
-  markets: z
-    .array(
-      z.object({
-        id: z.string(),
-        combinedTaxRateBps: z.number().int().min(0).max(2000).nullable(),
-        pricingEnabled: z.boolean(),
-        isActive: z.boolean(),
-      }),
-    )
-    .optional(),
+export const estimateInputSchema = z
+  .object({
+    service: z.enum(publicServiceIds),
+    squareFeet: z.number().int().min(1).max(100_000),
+    bedrooms: z.number().int().min(0).max(20),
+    fullBaths: z.number().int().min(0).max(20),
+    halfBaths: z.number().int().min(0).max(20),
+    kitchens: z.number().int().min(1).max(20),
+    offices: z.number().int().min(0).max(20),
+    extraRooms: z.number().int().min(0).max(20),
+    condition: z.enum(['routine', 'heavy', 'severe', 'unknown']),
+    highWork: z.boolean(),
+    heavyConditionApproved: z.boolean(),
+    cadence: z.enum(['weekly', 'biweekly', 'monthly']).nullable(),
+    returningRecurring: z.boolean(),
+    ovenCavities: z.number().int().min(0).max(10),
+    refrigeratorCount: z.number().int().min(0).max(10),
+    cabinetDoors: z.number().int().min(0).max(500),
+    baseboards: z.boolean(),
+    windowPanes: z.number().int().min(0).max(500),
+    windowTracks: z.number().int().min(0).max(500),
+    blinds: z.number().int().min(0).max(500),
+    linenBeds: z.number().int().min(0).max(50),
+    laundryLoads: z.number().int().min(0).max(2),
+    dishBlocks: z.number().int().min(0).max(2),
+    garageBays: z.number().int().min(0).max(10),
+    petHair: z.boolean(),
+    rush: z.boolean(),
+    travelMiles: z.number().int().min(0).max(10_000),
+    city: z.string().trim().min(1).max(100),
+    state: z.string().trim().length(2),
+  })
+  .strict()
+  .superRefine((input, ctx) => {
+    if (input.service !== 'standard' && input.cadence !== null)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['cadence'],
+        message: 'Frequency is available only for Standard.',
+      });
+  });
+
+export const publicRateCardSchema = z.object({
+  version: z.number().int().positive(),
+  includedSqFt: z.number().int().positive(),
+  serviceHints: z.object({
+    standard: z.string(),
+    deep: z.string(),
+    move: z.string(),
+    airbnb: z.string(),
+    commercial: z.string(),
+    postConstruction: z.string(),
+    medicalGradeSanitation: z.string().optional(),
+  }),
 });
-export type AdminPricingSettingsPut = z.infer<typeof AdminPricingSettingsPut>;
+
+export const rateCardAdminResponseSchema = z.object({
+  version: z.number().int().positive(),
+  updatedAt: z.string(),
+  settings: pricingSettingsSchema,
+});
+
+export const estimateResponseSchema = z.object({
+  version: z.number().int().positive(),
+  service: z.enum(publicServiceIds),
+  status: z.enum(['priced', 'quote_required']),
+  reason: z.string().nullable(),
+  totalCents: cents.nullable(),
+  coreCents: cents.nullable(),
+  discountCents: cents,
+  netCents: cents.nullable(),
+  heavyCents: cents,
+  addOnsCents: cents,
+  travelCents: cents,
+  subtotalCents: cents.nullable(),
+  taxCents: cents.nullable(),
+  taxBasisPoints: z.number().int().min(0).max(20_000).nullable(),
+  lines: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      amountCents: cents,
+      kind: z.enum(['core', 'discount', 'heavy', 'add_on', 'travel', 'subtotal', 'tax', 'total']),
+      included: z.boolean().optional(),
+      pending: z.boolean().optional(),
+    }),
+  ),
+});
+
+export const saveRateCardSchema = z
+  .object({
+    expectedVersion: z.number().int().positive(),
+    settings: pricingSettingsSchema,
+  })
+  .strict();
+
+export type PricingSettings = z.infer<typeof pricingSettingsSchema>;
+export type EstimateInput = z.infer<typeof estimateInputSchema>;
+export type EstimateResponse = z.infer<typeof estimateResponseSchema>;
+export type PublicRateCard = z.infer<typeof publicRateCardSchema>;

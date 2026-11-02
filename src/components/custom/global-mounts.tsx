@@ -7,15 +7,18 @@
 
 import { usePathname } from 'next/navigation';
 import { ContactActions } from '@/components/custom/contact-actions';
+import { MetaPixelPageView } from '@/components/custom/meta-pixel-page-view';
 
 const HIDDEN_ROUTE_PREFIXES = [
   '/manage',
+  '/book',
   '/dashboard',
   '/admin',
   '/login',
   '/signup',
   '/profile',
-  '/book',
+  '/terms',
+  '/privacy',
 ] as const;
 
 export function GlobalMounts() {
@@ -24,7 +27,10 @@ export function GlobalMounts() {
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
 
-  if (isHidden) return null;
-
-  return <ContactActions variant="floating" />;
+  return (
+    <>
+      <MetaPixelPageView />
+      {isHidden ? null : <ContactActions variant="floating" />}
+    </>
+  );
 }

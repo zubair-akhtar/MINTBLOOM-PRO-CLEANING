@@ -1,4 +1,4 @@
-// @polsia:framework-owned - DO NOT EDIT. Code installed by polsia/modules/email@0.5.1. Drift = commit rejected.
+// @polsia:framework-owned - DO NOT EDIT. Code installed by polsia/modules/email@0.5.2. Drift = commit rejected.
 // Server-only sendEmail transport — POSTs to the Polsia email proxy. Import it from your app's
 // OWN server route handlers (never expose a generic /api/email route). Compose subject/html/text in
 // the user-owned @/lib/email/templates, then: sendEmail({ to, ...welcomeEmail({ name }) }).
@@ -67,7 +67,8 @@ export async function sendEmail(
     const detail = await res.text().catch(() => '');
     throw new Error(`email proxy send failed: ${res.status} ${detail}`.trim());
   }
-  // Proxy returns { success, email_id, message_id, ... } — map email_id to id (absent when suppressed).
-  const json = (await res.json()) as { email_id?: string };
-  return { id: json.email_id ?? '' };
+  // Proxy returns { success, email_id: number, message_id, ... }, email_id absent when suppressed.
+  // Stringify it so id matches SendEmailResult at runtime (e.g. 8064 -> "8064").
+  const json = (await res.json()) as { email_id?: number };
+  return { id: json.email_id == null ? '' : String(json.email_id) };
 }
