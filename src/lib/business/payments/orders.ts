@@ -144,7 +144,17 @@ export async function createQuoteOrder(input: CreateQuoteRequestInput) {
     payload: { reference: order.reference },
   });
 
-  await sendQuoteAdminEmail(order);
+  try {
+    await sendQuoteAdminEmail(order);
+  } catch (error) {
+    await logPaymentEvent({
+      orderId: order.id,
+      eventType: 'quote_admin_email_failed',
+      payload: { message: error instanceof Error ? error.message : 'email_failed' },
+      riskFlag: true,
+      message: 'Quote saved but admin email failed.',
+    });
+  }
   return serializeOrder(order);
 }
 
@@ -279,11 +289,21 @@ export async function finalizeCapturedOrder(order: BookingPaymentOrder, capture:
   });
 
   if (!updated.invoiceEmailedAt) {
-    await sendBookingInvoiceEmails(updated);
-    await prisma.bookingPaymentOrder.update({
-      where: { id: updated.id },
-      data: { invoiceEmailedAt: new Date() },
-    });
+    try {
+      await sendBookingInvoiceEmails(updated);
+      await prisma.bookingPaymentOrder.update({
+        where: { id: updated.id },
+        data: { invoiceEmailedAt: new Date() },
+      });
+    } catch (error) {
+      await logPaymentEvent({
+        orderId: updated.id,
+        eventType: 'invoice_email_failed',
+        payload: { message: error instanceof Error ? error.message : 'email_failed' },
+        riskFlag: true,
+        message: 'Payment recorded but invoice email failed.',
+      });
+    }
   }
 
   return serializeOrder(updated);

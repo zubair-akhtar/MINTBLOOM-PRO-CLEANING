@@ -752,7 +752,7 @@ export function PricingCalculator({
             <>
               <div className={styles.panelHeading}>
                 <div>
-                  <p className={styles.eyebrow}>Step {step + 1} of 3</p>
+                  <p className={styles.eyebrow}>Step {step + 1} of {STEPS.length}</p>
                   <h2 id="wizard-heading" className={styles.panelTitle}>
                     {STEPS[step]?.title ?? 'Property size'}
                   </h2>
@@ -1139,9 +1139,9 @@ export function PricingCalculator({
               {step === 3 ? (
                 <div className={styles.formBody}>
                   <p className={styles.panelCopy}>
-                    Choose how you want to continue. You can send a free quote request, or pay
-                    securely online with PayPal{paymentConfig?.venmoEnabled ? ' or Venmo' : ''} to
-                    book.
+                    {paymentConfig?.onlinePaymentsAvailable
+                      ? `Choose how you want to continue. You can send a free quote request, or pay securely online with PayPal${paymentConfig.venmoEnabled ? ' or Venmo' : ''} to book.`
+                      : 'Send a free quote request. Mintbloom will confirm the final price with you.'}
                   </p>
                   <div className={styles.serviceGrid}>
                     <button
@@ -1222,7 +1222,7 @@ export function PricingCalculator({
                       </div>
                       <div className={`${styles.field} ${styles.fullWidth}`}>
                         <p className={styles.panelCopy}>
-                          Due today:{' '}
+                          {checkoutMode === 'online' ? 'Due today:' : 'Estimated total:'}{' '}
                           <strong>
                             {estimate?.status === 'priced'
                               ? formatUsdFromCents(payableTotalCents)
@@ -1231,6 +1231,7 @@ export function PricingCalculator({
                           {couponDiscountCents > 0
                             ? ` (saved ${formatUsdFromCents(couponDiscountCents)})`
                             : ''}
+                          {checkoutMode === 'quote' ? ' — no payment now.' : ''}
                         </p>
                       </div>
                       {checkoutMode === 'online' &&

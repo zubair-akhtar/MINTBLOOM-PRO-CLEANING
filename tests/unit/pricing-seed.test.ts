@@ -6,6 +6,7 @@ const db = vi.hoisted(() => {
   const tx = {
     pricingRateCardVersion: { createMany: vi.fn().mockResolvedValue({ count: 0 }) },
     serviceMarket: { createMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    paymentGatewaySettings: { upsert: vi.fn().mockResolvedValue({ id: 'default' }) },
   };
 
   return {
@@ -27,6 +28,7 @@ describe('pricing startup seed', () => {
     db.prisma.$transaction.mockClear();
     db.tx.pricingRateCardVersion.createMany.mockClear();
     db.tx.serviceMarket.createMany.mockClear();
+    db.tx.paymentGatewaySettings.upsert.mockClear();
   });
 
   it('inserts only missing rate-card and market rows without updating existing records', async () => {
@@ -43,6 +45,15 @@ describe('pricing startup seed', () => {
         expect.objectContaining({ city: 'Plainview', state: 'TX' }),
       ]),
       skipDuplicates: true,
+    });
+    expect(db.tx.paymentGatewaySettings.upsert).toHaveBeenCalledWith({
+      where: { id: 'default' },
+      create: expect.objectContaining({
+        id: 'default',
+        paypalEnabled: false,
+        venmoEnabled: false,
+      }),
+      update: {},
     });
   });
 });
