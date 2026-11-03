@@ -88,10 +88,10 @@ type CalculatorForm = {
 };
 
 const STEPS = [
-  { id: 'property', title: 'Property size', icon: Ruler },
-  { id: 'details', title: 'Details & add-ons', icon: ClipboardList },
-  { id: 'contact', title: 'Info & address', icon: UserRound },
-  { id: 'checkout', title: 'Book or request', icon: CreditCard },
+  { id: 'property', title: 'Property size', short: 'Size', icon: Ruler },
+  { id: 'details', title: 'Details & add-ons', short: 'Details', icon: ClipboardList },
+  { id: 'contact', title: 'Info & address', short: 'Address', icon: UserRound },
+  { id: 'checkout', title: 'Book or request', short: 'Book', icon: CreditCard },
 ] as const;
 
 const SERVICE_META: { id: ServiceId; label: string; hint?: string; icon: typeof Home }[] = [
@@ -712,7 +712,8 @@ export function PricingCalculator({
                   </span>
                   <span className={styles.stepLabel}>
                     <Icon className={styles.stepIcon} aria-hidden="true" />
-                    <span>{item.title}</span>
+                    <span className={styles.stepLabelFull}>{item.title}</span>
+                    <span className={styles.stepLabelShort}>{item.short}</span>
                   </span>
                 </button>
               </li>
@@ -1269,11 +1270,14 @@ export function PricingCalculator({
                 )}
                 {step < 3 ? (
                   <Button type="button" onClick={nextStep} className={styles.nextButton}>
-                    {step === 0
-                      ? 'Continue to details'
-                      : step === 1
-                        ? 'Continue to your address'
-                        : 'Continue to booking'}
+                    <span className={styles.nextLabelFull}>
+                      {step === 0
+                        ? 'Continue to details'
+                        : step === 1
+                          ? 'Continue to your address'
+                          : 'Continue to booking'}
+                    </span>
+                    <span className={styles.nextLabelShort}>Continue</span>
                     <ArrowRight size={16} aria-hidden="true" />
                   </Button>
                 ) : checkoutMode === 'quote' ? (
@@ -1286,13 +1290,22 @@ export function PricingCalculator({
                     {submitting ? (
                       <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
                     ) : null}
-                    {submitting
-                      ? 'Sending request…'
-                      : form.service === 'commercial'
-                        ? 'Request Walkthrough'
-                        : estimate?.status === 'quote_required'
-                          ? 'Request Quote'
-                          : 'Send quote request'}
+                    <span className={styles.nextLabelFull}>
+                      {submitting
+                        ? 'Sending request…'
+                        : form.service === 'commercial'
+                          ? 'Request Walkthrough'
+                          : estimate?.status === 'quote_required'
+                            ? 'Request Quote'
+                            : 'Send quote request'}
+                    </span>
+                    <span className={styles.nextLabelShort}>
+                      {submitting
+                        ? 'Sending…'
+                        : form.service === 'commercial'
+                          ? 'Request'
+                          : 'Send request'}
+                    </span>
                   </Button>
                 ) : (
                   <span className={styles.fieldHint}>
@@ -1418,14 +1431,23 @@ export function PricingCalculator({
           </div>
         </aside>
       </div>
-      {!estimateLoading && estimate?.status === 'priced' && displayTotal ? (
+      {!reference ? (
         <output className={styles.mobileEstimate} aria-label="Current estimate">
           <div className={styles.mobileEstimateTotal}>
             <span>Estimated total</span>
-            <strong>{displayTotal}</strong>
+            <strong>
+              {estimateLoading
+                ? 'Updating…'
+                : estimate?.status === 'priced'
+                  ? formatUsdFromCents(payableTotalCents)
+                  : form.squareFeet === '' && !isQuoteOnlyService(form.service)
+                    ? '—'
+                    : quoteLabel}
+            </strong>
           </div>
           <Button
             type="button"
+            className={styles.mobileEstimateButton}
             onClick={() =>
               step < 3
                 ? nextStep()
@@ -1443,8 +1465,10 @@ export function PricingCalculator({
               : submitting
                 ? 'Sending…'
                 : checkoutMode === 'quote'
-                  ? 'Send request'
-                  : 'Pay above'}
+                  ? 'Send'
+                  : checkoutMode === 'online'
+                    ? 'Pay above'
+                    : 'Choose'}
           </Button>
         </output>
       ) : null}

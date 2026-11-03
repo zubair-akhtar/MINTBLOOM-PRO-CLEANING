@@ -139,9 +139,14 @@
   white-space: nowrap;
 }
 
-.stepLabel > span {
+.stepLabelFull,
+.stepLabelShort {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.stepLabelShort {
+  display: none;
 }
 
 .stepIcon {
@@ -149,6 +154,10 @@
   width: 0.8rem;
   height: 0.8rem;
   flex: 0 0 auto;
+}
+
+.nextLabelShort {
+  display: none;
 }
 
 .layout {
@@ -882,10 +891,22 @@
 }
 
 .mobileEstimateTotal strong {
+  display: block;
   color: #1c4b34;
   font-family: var(--font-display), Georgia, serif;
-  font-size: 1.15rem;
-  line-height: 1.2;
+  font-size: 1.05rem;
+  font-weight: 650;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.mobileEstimateButton {
+  min-width: 5.5rem;
+  min-height: 2.55rem !important;
+  padding-inline: 0.8rem !important;
+  font-size: 0.8rem !important;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .retryLink {
@@ -947,55 +968,101 @@
   .noticeBoard {
     position: relative;
     top: auto;
+    /* Sticky bar already shows the live total on small screens. */
+    display: none;
   }
 
   .mobileEstimate {
     position: fixed;
-    z-index: 40;
+    z-index: 60;
     right: 0;
     bottom: 0;
     left: 0;
     display: flex;
-    min-height: 4.25rem;
+    min-height: 4.85rem;
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
     border-top: 1px solid #dfd2b6;
     background: #f7f1e3;
-    padding: 0.6rem max(1rem, env(safe-area-inset-right)) max(0.6rem, env(safe-area-inset-bottom))
-      max(1rem, env(safe-area-inset-left));
+    box-shadow: 0 -8px 24px rgb(24 37 30 / 8%);
+    padding: 0.7rem max(1rem, env(safe-area-inset-right))
+      calc(0.7rem + env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left));
   }
 
   .mobileEstimate > button {
-    min-height: 2.8rem;
+    min-height: 2.65rem;
     flex: 0 0 auto;
+  }
+
+  /* Sticky bar owns the primary action on phones/tablets. */
+  .formFooter .nextButton {
+    display: none;
+  }
+
+  .formFooter {
+    justify-content: flex-start;
   }
 }
 
 @media (max-width: 38rem) {
   .intro {
-    margin-bottom: 1.4rem;
+    margin-bottom: 1.1rem;
     text-align: left;
   }
 
+  .title {
+    font-size: clamp(1.7rem, 8vw, 2.2rem);
+  }
+
   .lede {
-    font-size: 0.92rem;
+    font-size: 0.9rem;
+    line-height: 1.55;
   }
 
   .stepButton {
-    min-height: 3.75rem;
-    gap: 0.2rem;
-    padding: 0.35rem 0.65rem;
+    min-height: 3.35rem;
+    gap: 0.15rem;
+    padding: 0.3rem 0.35rem;
   }
 
   .stepNumber {
-    width: 1.35rem;
-    height: 1.35rem;
-    font-size: 0.6rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    font-size: 0.58rem;
   }
 
   .stepLabel {
-    font-size: 0.61rem;
+    font-size: 0.62rem;
+  }
+
+  .stepLabelFull {
+    display: none;
+  }
+
+  .stepLabelShort {
+    display: inline;
+  }
+
+  .panelTitle {
+    font-size: clamp(1.35rem, 5.5vw, 1.7rem);
+  }
+
+  .panelIndex {
+    font-size: 1.7rem;
+  }
+
+  .panelCopy {
+    font-size: 0.84rem;
+  }
+
+  .serviceCard {
+    min-height: 3.4rem;
+    padding: 0.7rem 0.8rem;
+  }
+
+  .serviceCardTop strong {
+    font-size: 0.86rem;
   }
 
   .serviceGrid,
@@ -1005,11 +1072,12 @@
   }
 
   .formPanel {
-    padding: 1rem;
+    padding: 0.9rem;
   }
 
   .formFooter {
     align-items: stretch;
+    gap: 0.55rem;
   }
 
   .backButton,
@@ -1019,6 +1087,23 @@
     justify-content: center;
     padding-inline: 0.55rem;
     font-size: 0.8rem;
+  }
+
+  .nextLabelFull {
+    display: none;
+  }
+
+  .nextLabelShort {
+    display: inline;
+  }
+
+  .mobileEstimateTotal strong {
+    font-size: 0.98rem;
+  }
+
+  .choiceCardTitle,
+  .serviceCard strong {
+    font-size: 0.9rem;
   }
 }
 
